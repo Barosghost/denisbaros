@@ -11,6 +11,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         exit();
     }
 
+    require_once '../config/functions.php';
+    if (!verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+        header("Location: ../index.php?error=csrf");
+        exit();
+    }
+
     try {
         // Prepare statement to find user
         $stmt = $pdo->prepare("SELECT id_user, username, password, role FROM users WHERE username = :username");
@@ -20,6 +26,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // Verify password
         if ($user && password_verify($password, $user['password'])) {
             // Login Success
+            session_regenerate_id(true);
             $_SESSION['user_id'] = $user['id_user'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['role'] = $user['role'];

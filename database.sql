@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS products (
     name VARCHAR(100) NOT NULL,
     description TEXT,
     price DECIMAL(10,2) NOT NULL,
+    purchase_price DECIMAL(10,2) DEFAULT 0.00,
+    image VARCHAR(255) DEFAULT NULL,
     id_category INT,
     status ENUM('actif', 'inactif') DEFAULT 'actif',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -61,6 +63,15 @@ CREATE TABLE IF NOT EXISTS sale_details (
     subtotal DECIMAL(10,2) NOT NULL,
     FOREIGN KEY (id_sale) REFERENCES sales(id_sale),
     FOREIGN KEY (id_product) REFERENCES products(id_product)
+);
+
+CREATE TABLE IF NOT EXISTS action_logs (
+    id_log INT AUTO_INCREMENT PRIMARY KEY,
+    id_user INT NOT NULL,
+    action VARCHAR(255) NOT NULL,
+    details TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_user) REFERENCES users(id_user)
 );
 
 -- Default Admin User (username: admin, password: password)

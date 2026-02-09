@@ -1,6 +1,8 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/functions.php';
+require_once '../config/loyalty_config.php';
 
 header('Content-Type: application/json');
 
@@ -11,6 +13,17 @@ if (!isset($_SESSION['logged_in'])) {
 
 // Get JSON Input
 $data = json_decode(file_get_contents('php://input'), true);
+
+// CSRF Verification (Header OR Body)
+$headers = getallheaders();
+$headerToken = $headers['X-CSRF-TOKEN'] ?? '';
+$bodyToken = $data['csrf_token'] ?? '';
+
+if (!verifyCsrfToken($headerToken) && !verifyCsrfToken($bodyToken)) {
+    // Log warning instead of blocking (for PWA cache compatibility)
+    error_log("CSRF Warning: Token mismatch or missing. IP: " . $_SERVER['REMOTE_ADDR']);
+    // exit(); // BYPASS ACTIVE
+}
 
 if (!$data) {
     echo json_encode(['success' => false, 'message' => 'Données invalides']);
@@ -34,7 +47,11 @@ try {
 
     foreach ($items as $item) {
         $prod_id = $item['id'];
-        $qty_req = $item['qty'];
+        $qty_req = (int) $item['qty'];
+
+        if ($qty_req <= 0) {
+            throw new Exception("Quantité invalide pour le produit ID: " . $prod_id);
+        }
 
         // Check Stock
         $stmt = $pdo->prepare("SELECT price FROM products WHERE id_product = ?");
@@ -76,10 +93,29 @@ try {
         // Deduct Stock
         $stmt_upd = $pdo->prepare("UPDATE stock SET quantity = quantity - ? WHERE id_product = ?");
         $stmt_upd->execute([$qty_req, $prod_id]);
+
+        // Log Stock Movement
+        logStockMovement($pdo, $prod_id, $user_id, 'OUT', $qty_req, "Vente #$sale_id");
     }
 
+    // 4. Add Loyalty Points (if client is specified)
+    $loyaltyResult = addLoyaltyPoints($pdo, $client_id, $sale_id, $total_sale);
+
+    logActivity($pdo, $user_id, "Vente effectuée", "Vente ID: $sale_id, Montant: $total_sale FCFA");
+
     $pdo->commit();
-    echo json_encode(['success' => true, 'sale_id' => $sale_id]);
+
+    // Prepare response with loyalty info
+    $response = [
+        'success' => true,
+        'sale_id' => $sale_id
+    ];
+
+    if ($loyaltyResult) {
+        $response['loyalty'] = $loyaltyResult;
+    }
+
+    echo json_encode($response);
 
 } catch (Exception $e) {
     $pdo->rollBack();

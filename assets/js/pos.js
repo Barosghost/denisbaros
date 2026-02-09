@@ -7,7 +7,7 @@ let cart = [];
 // Add to Cart
 function addToCart(id, name, price, maxStock) {
     if (maxStock <= 0) {
-        alert("Stock épuisé pour ce produit !");
+        showAlert('Stock Épuisé', "Ce produit n'est plus en stock !", 'error');
         return;
     }
 
@@ -17,7 +17,7 @@ function addToCart(id, name, price, maxStock) {
         if (existingItem.qty < maxStock) {
             existingItem.qty++;
         } else {
-            alert("Stock insuffisant !");
+            showAlert('Stock Insuffisant', "Vous ne pouvez pas ajouter plus que le stock disponible.", 'warning');
             return;
         }
     } else {
@@ -25,26 +25,51 @@ function addToCart(id, name, price, maxStock) {
     }
 
     renderCart();
+    if (cart.length === 1 && typeof openMobileCart === 'function') {
+        openMobileCart();
+    }
 }
 
-// Render Cart HTML
+// Render Cart UI
 function renderCart() {
-    const tbody = document.getElementById('cartTableBody');
-    tbody.innerHTML = '';
+    const cartContainer = document.getElementById('cartTableBody');
+    cartContainer.innerHTML = '';
+
+    const posContent = document.querySelector('.pos-content');
+    const topCartBar = document.getElementById('topCartBar');
 
     if (cart.length === 0) {
-        tbody.innerHTML = `
-            <tr class="text-center">
-                <td colspan="4" class="py-5">
-                    <div class="d-flex flex-column align-items-center justify-content-center text-muted">
-                        <i class="fa-solid fa-cart-arrow-down fa-3x mb-3 opacity-25"></i>
-                        <p class="mb-0 fw-light">Votre panier est vide</p>
-                    </div>
-                </td>
-            </tr>`;
+        if (posContent) posContent.classList.remove('cart-active');
+
+        // Hide Top Bar Trigger
+        if (topCartBar) {
+            topCartBar.classList.remove('d-flex');
+            topCartBar.classList.add('d-none');
+        }
+
+        cartContainer.innerHTML = `
+            <div class="d-flex flex-column align-items-center justify-content-center h-100 opacity-20">
+                <i class="fa-solid fa-cart-shopping fa-3x mb-3"></i>
+                <div class="fw-medium">Votre panier est vide</div>
+                <div class="small">Sélectionnez des articles à gauche</div>
+            </div>`;
         document.getElementById('totalItems').innerText = 0;
         document.getElementById('totalAmount').innerText = '0 FCFA';
         return;
+    }
+
+    // Show Top Cart Trigger
+    if (topCartBar) {
+        topCartBar.classList.remove('d-none');
+        topCartBar.classList.add('d-flex');
+
+        // Pulse animation on the button itself
+        const triggerBtn = topCartBar.querySelector('.top-cart-trigger');
+        if (triggerBtn) {
+            triggerBtn.classList.remove('animate-pulse');
+            void triggerBtn.offsetWidth; // Trigger reflow
+            triggerBtn.classList.add('animate-pulse');
+        }
     }
 
     let totalItems = 0;
@@ -55,26 +80,61 @@ function renderCart() {
         totalItems += item.qty;
         totalAmount += subtotal;
 
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>
-                <div class="fw-bold text-truncate" style="max-width: 120px;">${item.name}</div>
-                <div class="small text-muted">${item.price} FCFA</div>
-            </td>
-            <td class="text-center">
-                <input type="number" min="1" max="${item.maxStock}" class="form-control form-control-sm bg-dark text-white border-secondary text-center p-1" 
-                       value="${item.qty}" onchange="updateQty(${index}, this.value)">
-            </td>
-            <td class="text-end fw-bold">${subtotal}</td>
-            <td class="text-end">
-                <button class="btn btn-sm text-danger p-0" onclick="removeItem(${index})"><i class="fa-solid fa-times"></i></button>
-            </td>
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'cart-item-row fade-in';
+        itemDiv.innerHTML = `
+            <div class="cart-item-info">
+                <div class="text-white fw-bold text-truncate" title="${item.name}">${item.name}</div>
+                <div class="extra-small text-muted">${new Intl.NumberFormat('fr-FR').format(item.price)} FCFA</div>
+            </div>
+            <div class="cart-item-qty">
+                <div class="input-group input-group-sm">
+                    <button class="btn btn-outline-secondary border-0 px-2" onclick="updateQty(${index}, ${item.qty - 1})">-</button>
+                    <input type="number" class="form-control bg-transparent text-white border-0 text-center p-0" 
+                           value="${item.qty}" readonly>
+                    <button class="btn btn-outline-secondary border-0 px-2" onclick="updateQty(${index}, ${item.qty + 1})">+</button>
+                </div>
+            </div>
+            <div class="text-end" style="min-width: 80px;">
+                <div class="text-white fw-bold small">${new Intl.NumberFormat('fr-FR').format(subtotal)}</div>
+                <button class="btn btn-link text-danger p-0 extra-small text-decoration-none" onclick="removeItem(${index})">
+                    <i class="fa-solid fa-trash-can me-1"></i>Oter
+                </button>
+            </div>
         `;
-        tbody.appendChild(tr);
+        cartContainer.appendChild(itemDiv);
     });
 
     document.getElementById('totalItems').innerText = totalItems;
     document.getElementById('totalAmount').innerText = new Intl.NumberFormat('fr-FR').format(totalAmount) + ' FCFA';
+
+    // Highlight Checkout Button
+    const checkoutBtn = document.querySelector('button[onclick="processSale()"]');
+    if (checkoutBtn) {
+        if (totalItems > 0) {
+            checkoutBtn.classList.add('btn-checkout-active');
+        } else {
+            checkoutBtn.classList.remove('btn-checkout-active');
+        }
+    }
+
+    // Update Top Cart Badge
+    const topBadge = document.getElementById('topCartCount');
+    if (topBadge) {
+        topBadge.innerText = totalItems;
+    }
+
+    // Update Mobile Checkout Bar
+    const mobileBar = document.getElementById('mobileCheckoutBar');
+    if (mobileBar) {
+        if (totalItems > 0) {
+            mobileBar.style.display = 'flex';
+            document.getElementById('mobileCartTotal').innerText = document.getElementById('totalAmount').innerText;
+            document.getElementById('mobileCartCount').innerText = totalItems;
+        } else {
+            mobileBar.style.display = 'none';
+        }
+    }
 }
 
 // Update Quantity
@@ -85,7 +145,7 @@ function updateQty(index, newQty) {
         return;
     }
     if (newQty > cart[index].maxStock) {
-        alert("Quantité supérieure au stock disponible !");
+        showAlert('Limite Atteinte', "Quantité limitée au stock disponible.", 'warning');
         cart[index].qty = cart[index].maxStock;
     } else {
         cart[index].qty = newQty;
@@ -117,7 +177,7 @@ document.getElementById('searchProduct').addEventListener('input', function (e) 
 // Process Sale
 function processSale() {
     if (cart.length === 0) {
-        alert("Le panier est vide !");
+        showAlert('Panier Vide', "Veuillez ajouter des produits avant de valider.", 'info');
         return;
     }
 
@@ -126,8 +186,26 @@ function processSale() {
     // Prepare Data
     const data = {
         client_id: clientId,
-        items: cart
+        items: cart,
+        csrf_token: csrfToken // Send token in body as robust fallback
     };
+
+    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+
+    if (!csrfToken) {
+        // Self-healing: Token missing likely due to stale cache. Force reload.
+        Swal.fire({
+            title: 'Mise à jour requise',
+            text: 'Une mise à jour de sécurité est nécessaire. La page va se recharger.',
+            icon: 'info',
+            timer: 2000,
+            showConfirmButton: false
+        }).then(() => {
+            window.location.reload(true);
+        });
+        return;
+    }
 
     // Use Custom Confirmation
     showConfirmation("Confirmer la vente de " + document.getElementById('totalAmount').innerText + " ?", () => {
@@ -136,25 +214,33 @@ function processSale() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken
             },
             body: JSON.stringify(data),
         })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Success Message could be a notification too, but alert is fine for now or we can use a custom modal
-                    alert("Vente enregistrée avec succès !");
-                    cart = [];
-                    renderCart();
-                    // Redirect to Invoice
-                    window.location.href = `invoice.php?id=${data.sale_id}`;
+                    Swal.fire({
+                        title: 'Vente Validée !',
+                        text: 'La transaction a été enregistrée avec succès.',
+                        icon: 'success',
+                        background: '#1e293b',
+                        color: '#fff',
+                        timer: 2000,
+                        showConfirmButton: false
+                    }).then(() => {
+                        cart = [];
+                        renderCart();
+                        window.location.href = `invoice.php?id=${data.sale_id}`;
+                    });
                 } else {
-                    alert("Erreur lors de la vente : " + data.message);
+                    showAlert('Erreur', "La vente n'a pas pu aboutir : " + data.message, 'error');
                 }
             })
             .catch((error) => {
                 console.error('Error:', error);
-                alert("Erreur de communication avec le serveur.");
+                showAlert('Erreur Système', "Impossible de communiquer avec le serveur.", 'error');
             });
     });
 }

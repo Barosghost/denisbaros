@@ -3,6 +3,14 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+
+// Lancer le backup automatique (vérifie si c'est le moment une fois par mois)
+if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin') {
+    require_once __DIR__ . '/../actions/auto_backup.php';
+}
+
+require_once __DIR__ . '/../config/functions.php'; // Ensure functions are available
+generateCsrfToken(); // Generate token for the session
 ?>
 <nav class="navbar navbar-custom">
     <div class="d-flex justify-content-between align-items-center w-100">

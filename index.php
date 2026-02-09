@@ -1,3 +1,12 @@
+<?php
+session_start();
+if (isset($_SESSION['logged_in'])) {
+    header("Location: views/dashboard.php");
+    exit();
+}
+require_once 'config/functions.php';
+generateCsrfToken();
+?>
 <!DOCTYPE html>
 <html lang="fr">
 
@@ -11,6 +20,8 @@
     <link rel="stylesheet" href="assets/css/style.css?v=<?= time() ?>">
     <!-- Icons -->
     <link rel="stylesheet" href="assets/vendor/fontawesome/css/all.min.css">
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
 </head>
 
 <body>
@@ -28,18 +39,15 @@
                         class="mb-4 d-inline-block p-4 rounded-circle bg-white bg-opacity-10 text-white shadow-lg backdrop-blur">
                         <i class="fa-solid fa-store fa-4x"></i>
                     </div>
-                    <h2 class="text-white mb-2 fw-bold">DENIS FBI</h2>
+                    <h2 class="text-white mb-2 fw-bold">DENIS FBI STORE</h2>
                     <p class="text-white text-opacity-75 mb-0">Gestion Commerciale & Stock</p>
-                    <div class="mt-4 pt-4 border-top border-light border-opacity-25 w-50">
-                        <small class="text-white text-opacity-50 text-uppercase letter-spacing-2">Admin Panel</small>
-                    </div>
                 </div>
 
                 <!-- Right Side: Form -->
                 <div class="col-md-7 login-form-side bg-dark bg-opacity-25">
                     <div class="text-center mb-4 d-md-none">
                         <i class="fa-solid fa-store fa-2x text-primary"></i>
-                        <h3 class="fw-bold mt-2">DENIS FBI</h3>
+                        <h3 class="fw-bold mt-2">DENIS FBI STORE</h3>
                     </div>
 
                     <h3 class="fw-bold mb-1">Bienvenue</h3>
@@ -54,6 +62,7 @@
                     <?php endif; ?>
 
                     <form action="auth/login.php" method="POST">
+                        <?= getCsrfInput() ?>
                         <div class="form-floating mb-3">
                             <input type="text" class="form-control" id="username" name="username"
                                 placeholder="Nom d'utilisateur" required>
@@ -82,7 +91,7 @@
                     </form>
 
                     <div class="text-center mt-4">
-                        <small class="text-muted opacity-50">&copy; 2026 Denis FBI Store v1.0</small>
+                        <small class="text-muted opacity-50">&copy; 2026 Denis FBI Store</small>
                     </div>
                 </div>
             </div>

@@ -6,32 +6,31 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&family=Inter:wght@400;600&display=swap');
 
 :root {
-    --primary-color: #6366f1;
-    /* Indigo */
-    --primary-hover: #4f46e5;
-    --secondary-color: #ec4899;
-    /* Pink */
-    --accent-color: #8b5cf6;
-    /* Violet */
+    --primary-color: #3b82f6;
+    /* Brighter Blue */
+    --primary-hover: #2563eb;
+    --secondary-color: #06b6d4;
+    /* Cyan accent for active state */
+    --accent-color: #6366f1;
 
     --success-color: #10b981;
     --warning-color: #f59e0b;
     --danger-color: #ef4444;
 
-    --bg-dark: #0f172a;
-    --bg-darker: #020617;
-    --bg-card: rgba(30, 41, 59, 0.7);
-    /* Translucent for glass */
-    --bg-input: rgba(51, 65, 85, 0.5);
+    --bg-dark: #020617;
+    /* Even darker for depth */
+    --bg-darker: #000000;
+    --bg-card: rgba(15, 23, 42, 0.8);
+    --bg-input: rgba(30, 41, 59, 0.5);
 
-    --text-main: #f8fafc;
-    --text-muted: #94a3b8;
+    --text-main: #f1f5f9;
+    --text-muted: #64748b;
 
-    --glass-border: rgba(255, 255, 255, 0.08);
-    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    --glass-border: rgba(255, 255, 255, 0.05);
+    --glass-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 
-    --sidebar-width: 260px;
-    --transition-speed: 0.3s;
+    --sidebar-width: 280px;
+    --transition-speed: 0.25s;
 }
 
 /* Utility Overrides */
@@ -87,12 +86,16 @@ h6 {
     flex-direction: column;
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
     transition: all var(--transition-speed);
+    overflow: hidden;
+    /* Main sidebar doesn't scroll, its children do */
 }
 
 #content {
     width: 100%;
     margin-left: var(--sidebar-width);
     padding: 2rem;
+    padding-top: 0;
+    /* Sticky navbar will touch the top */
     min-height: 100vh;
     transition: all var(--transition-speed);
 }
@@ -114,7 +117,12 @@ h6 {
 
 #sidebar ul.components {
     padding: 1.5rem 1rem;
-    flex-grow: 1;
+    flex: 1;
+    /* Take all available middle space */
+    overflow-y: auto;
+    /* Scroll only the menu items */
+    overflow-x: hidden;
+    scroll-behavior: smooth;
 }
 
 #sidebar ul li {
@@ -141,28 +149,84 @@ h6 {
 
 #sidebar ul li a:hover,
 #sidebar ul li a.active {
-    background: rgba(99, 102, 241, 0.15);
+    background: linear-gradient(to right, rgba(59, 130, 246, 0.1), transparent);
     color: white;
-    border-color: rgba(99, 102, 241, 0.3);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-left: 3px solid var(--secondary-color);
+    border-radius: 0 12px 12px 0;
+    /* Flat left for the indicator */
+    box-shadow: none;
 }
 
 /* --- Responsive Media Queries --- */
+
+/* Mobile Menu Toggle Button */
+.mobile-menu-toggle {
+    display: none;
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 1060;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid var(--glass-border);
+    color: white;
+    width: 45px;
+    height: 45px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all var(--transition-speed);
+}
+
+.mobile-menu-toggle:hover {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: var(--primary-color);
+}
+
+/* Tablet (768px - 1024px) */
+@media (max-width: 1024px) {
+    #content {
+        padding: 1.5rem;
+    }
+
+    .stat-card {
+        padding: 1.25rem;
+    }
+
+    .table-responsive {
+        font-size: 0.9rem;
+    }
+}
+
+/* Mobile (max-width: 768px) */
 @media (max-width: 768px) {
+    .mobile-menu-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
     #sidebar {
         margin-left: calc(var(--sidebar-width) * -1);
-        /* Hide sidebar */
+        /* Hide sidebar by default */
     }
 
     #sidebar.active {
         margin-left: 0;
-        /* Show sidebar */
+        /* Show sidebar when active */
     }
 
     #content {
         margin-left: 0;
         padding: 1rem;
-        /* Less padding on mobile */
+        padding-top: 0;
+        /* Let sticky navbar touch top */
+    }
+
+    .navbar-custom {
+        margin-left: -1rem;
+        margin-right: -1rem;
+        padding: 1rem;
+        padding-top: 3.5rem;
+        /* Space for mobile hamburger toggle */
     }
 
     /* Overlay for mobile when sidebar is open */
@@ -172,10 +236,11 @@ h6 {
         width: 100vw;
         height: 100vh;
         background: rgba(0, 0, 0, 0.7);
-        z-index: 998;
-        /* Behind sidebar, above content */
+        z-index: 1040;
+        top: 0;
+        left: 0;
         opacity: 0;
-        transition: all 0.5s ease-in-out;
+        transition: all 0.3s ease-in-out;
     }
 
     .overlay.active {
@@ -183,13 +248,129 @@ h6 {
         opacity: 1;
     }
 
-    /* Adjust Cards for mobile */
+    /* Navbar adjustments */
+    .navbar-custom {
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1rem;
+    }
+
+    /* Stats cards stack on mobile */
+    .row>[class*='col-'] {
+        margin-bottom: 1rem;
+    }
+
+    /* Tables scroll horizontally */
+    .table-responsive {
+        font-size: 0.85rem;
+    }
+
+    .table th,
+    .table td {
+        padding: 0.75rem 0.5rem;
+        white-space: nowrap;
+    }
+
+    /* Cards */
+    .card-body {
+        padding: 1rem;
+    }
+
+    .card-header {
+        padding: 1rem;
+    }
+
+    /* Forms */
+    .row.g-3 {
+        row-gap: 0.75rem !important;
+    }
+
+    /* Buttons */
+    .btn-group {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .btn-group .btn {
+        width: 100%;
+        border-radius: 8px !important;
+        margin-bottom: 0.5rem;
+    }
+
+    /* Login page adjustments */
     .login-brand-side {
         padding: 2rem !important;
     }
 
     .login-form-side {
         padding: 2rem !important;
+    }
+
+    .login-card {
+        max-width: 95%;
+        margin: 1rem;
+    }
+}
+
+/* Small Mobile (max-width: 480px) */
+@media (max-width: 480px) {
+    #content {
+        padding: 0.75rem;
+    }
+
+    .navbar-custom {
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    h5 {
+        font-size: 1.1rem;
+    }
+
+    .stat-card {
+        padding: 1rem;
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        font-size: 1.25rem;
+    }
+
+    .table {
+        font-size: 0.8rem;
+    }
+
+    .badge {
+        font-size: 0.7rem;
+        padding: 0.35em 0.6em;
+    }
+
+    .btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+    }
+
+    .form-control,
+    .form-select {
+        padding: 0.6rem 0.8rem;
+        font-size: 0.9rem;
+    }
+}
+
+/* Landscape Mobile */
+@media (max-height: 500px) and (orientation: landscape) {
+    #sidebar {
+        height: 100vh;
+        overflow-y: auto;
+    }
+
+    .sidebar-header {
+        padding: 1rem;
+    }
+
+    #sidebar ul.components {
+        padding: 1rem 0.75rem;
     }
 }
 
@@ -200,11 +381,11 @@ h6 {
 .glass-panel,
 .card {
     background: var(--bg-card);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
-    border-radius: 16px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    border-radius: 12px;
     color: var(--text-main);
 }
 
@@ -219,16 +400,22 @@ h6 {
 
 /* Top Navbar */
 .navbar-custom {
-    background: var(--bg-card);
-    backdrop-filter: blur(16px);
-    border-radius: 16px;
-    padding: 1rem 1.5rem;
-    margin-bottom: 2rem;
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 0;
+    padding: 1.25rem 2rem;
+    margin: 0 -2rem 2rem -2rem;
+    /* Negative margin to reach edges of parent padding */
+    border: none;
+    border-bottom: 1px solid var(--glass-border);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
 }
 
 /* Stats Cards */
@@ -447,4 +634,21 @@ h6 {
 
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(148, 163, 184, 0.4);
+}
+
+#sidebar ul.components::-webkit-scrollbar {
+    width: 6px;
+}
+
+#sidebar ul.components::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+#sidebar ul.components::-webkit-scrollbar-thumb {
+    background: rgba(59, 130, 246, 0.5);
+    border-radius: 10px;
+}
+
+#sidebar ul.components::-webkit-scrollbar-thumb:hover {
+    background: #3b82f6;
 }

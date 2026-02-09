@@ -48,118 +48,113 @@ $categories = $pdo->query("SELECT * FROM categories ORDER BY id_category DESC")-
     <title>Catégories | DENIS FBI STORE</title>
     <link href="../assets/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="../assets/vendor/fontawesome/css/all.min.css">
-    <link rel="stylesheet" href="../assets/css/style.css">
-    <!-- Custom CSS -->
-</head>
+    <link rel="stylesheet" href="../assets/css/style.css?v=1.5">
 </head>
 
 <body>
-
     <div class="wrapper">
         <?php include '../includes/sidebar.php'; ?>
-
         <div id="content">
             <?php include '../includes/header.php'; ?>
 
-            <?php if (isset($success)): ?>
-                <div class="alert alert-success mt-3">
-                    <?= $success ?>
-                </div>
-            <?php endif; ?>
-            <?php if (isset($error)): ?>
-                <div class="alert alert-danger mt-3">
-                    <?= $error ?>
-                </div>
-            <?php endif; ?>
-
             <div class="fade-in mt-4">
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h5 class="text-white">Liste des Catégories</h5>
-                    <button class="btn btn-premium" data-bs-toggle="modal" data-bs-target="#addCatModal">
-                        <i class="fa-solid fa-plus me-2"></i> Nouvelle Catégorie
+                    <h2 class="text-white fw-bold mb-0">Gestion des Catégories</h2>
+                    <button class="btn btn-premium px-4" data-bs-toggle="modal" data-bs-target="#addCatModal">
+                        <i class="fa-solid fa-plus-circle me-2"></i>Nouvelle Catégorie
                     </button>
                 </div>
 
-                <div class="row">
-                    <div class="col-md-8">
-                        <div class="card bg-dark border-0 glass-panel">
-                            <div class="card-body p-0">
-                                <div class="table-responsive">
-                                    <table class="table table-dark table-hover mb-0 align-middle">
-                                        <thead class="bg-transparent border-bottom border-secondary">
+                <?php if (isset($success)): ?>
+                    <div class="alert alert-success border-0 bg-success bg-opacity-10 text-success mb-4"><?= $success ?>
+                    </div>
+                <?php endif; ?>
+                <?php if (isset($error)): ?>
+                    <div class="alert alert-danger border-0 bg-danger bg-opacity-10 text-danger mb-4"><?= $error ?></div>
+                <?php endif; ?>
+
+                <div class="card bg-dark border-0 glass-panel shadow-lg">
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-dark table-hover mb-0 align-middle">
+                                <thead class="border-bottom border-secondary border-opacity-20">
+                                    <tr class="text-muted small">
+                                        <th class="py-3 px-4" style="width: 250px;">NOM</th>
+                                        <th class="py-3">DESCRIPTION</th>
+                                        <th class="py-3 text-center" style="width: 150px;">PRODUITS</th>
+                                        <th class="py-3 text-end px-4" style="width: 150px;">ACTIONS</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (empty($categories)): ?>
+                                        <tr>
+                                            <td colspan="4" class="text-center text-muted py-4">Aucune catégorie trouvée
+                                            </td>
+                                        </tr>
+                                    <?php else: ?>
+                                        <?php foreach ($categories as $c): ?>
                                             <tr>
-                                                <th class="py-3 px-4">Nom</th>
-                                                <th class="py-3">Description</th>
-                                                <th class="py-3 text-end px-4">Actions</th>
+                                                <td class="px-4">
+                                                    <div class="d-flex align-items-center">
+                                                        <div class="icon-box bg-primary bg-opacity-10 text-primary me-3 text-center"
+                                                            style="width: 40px; height: 40px; border-radius: 10px; line-height: 40px;">
+                                                            <i class="fa-solid fa-tag"></i>
+                                                        </div>
+                                                        <span
+                                                            class="fw-bold text-white"><?= htmlspecialchars($c['name']) ?></span>
+                                                    </div>
+                                                </td>
+                                                <td class="text-muted small">
+                                                    <?= htmlspecialchars($c['description'] ?: 'Aucune description') ?>
+                                                </td>
+                                                <td class="text-center">
+                                                    <span class="badge bg-secondary bg-opacity-10 text-muted fw-normal">
+                                                        <?= $pdo->query("SELECT COUNT(*) FROM products WHERE id_category = " . $c['id_category'])->fetchColumn() ?>
+                                                        items
+                                                    </span>
+                                                </td>
+                                                <td class="text-end px-4">
+                                                    <button onclick="confirmDel(<?= $c['id_category'] ?>)"
+                                                        class="btn btn-sm btn-outline-danger border-0">
+                                                        <i class="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </td>
                                             </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php if (empty($categories)): ?>
-                                                <tr>
-                                                    <td colspan="3" class="text-center text-muted py-4">Aucune catégorie
-                                                        trouvée</td>
-                                                </tr>
-                                            <?php else: ?>
-                                                <?php foreach ($categories as $cat): ?>
-                                                    <tr>
-                                                        <td class="px-4 fw-bold text-primary">
-                                                            <?= htmlspecialchars($cat['name']) ?>
-                                                        </td>
-                                                        <td class="text-muted">
-                                                            <?= htmlspecialchars($cat['description']) ?>
-                                                        </td>
-                                                        <td class="text-end px-4">
-                                                            <a href="categories.php?delete=<?= $cat['id_category'] ?>"
-                                                                class="btn btn-sm btn-outline-danger"
-                                                                onclick="return confirm('Supprimer cette catégorie ?');">
-                                                                <i class="fa-solid fa-trash"></i>
-                                                            </a>
-                                                        </td>
-                                                    </tr>
-                                                <?php endforeach; ?>
-                                            <?php endif; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
-                    <!-- Mini Help Section or Stats could go here in col-md-4 -->
-                </div>
-
-                <div class="mt-4">
-                    <a href="products.php" class="btn btn-outline-light"><i class="fa-solid fa-arrow-left me-2"></i>
-                        Retour aux Produits</a>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Add Modal -->
-    <div class="modal fade" id="addCatModal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade" id="addCatModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content bg-dark text-white border-0 glass-panel">
-                <div class="modal-header border-bottom border-secondary">
-                    <h5 class="modal-title">Nouvelle Catégorie</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
+            <div class="modal-content bg-dark text-white glass-panel shadow-lg border-secondary border-opacity-10">
                 <form action="categories.php" method="POST">
-                    <div class="modal-body">
+                    <div class="modal-header border-secondary border-opacity-20 px-4">
+                        <h5 class="modal-title fw-bold">Nouvelle Catégorie</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body p-4">
                         <input type="hidden" name="action" value="add">
                         <div class="mb-3">
-                            <label class="form-label text-muted">Nom de la catégorie</label>
-                            <input type="text" name="name" class="form-control bg-dark text-white border-secondary"
-                                required placeholder="Ex: Ordinateurs">
+                            <label class="form-label text-muted small fw-bold">NOM DE LA CATÉGORIE</label>
+                            <input type="text" name="name" class="form-control bg-dark text-white border-secondary ps-3"
+                                placeholder="Ex: Boissons, Snacks..." required>
                         </div>
-                        <div class="mb-3">
-                            <label class="form-label text-muted">Description</label>
-                            <textarea name="description" class="form-control bg-dark text-white border-secondary"
-                                rows="3"></textarea>
+                        <div class="mb-0">
+                            <label class="form-label text-muted small fw-bold">DESCRIPTION (OPTIONNEL)</label>
+                            <textarea name="description" class="form-control bg-dark text-white border-secondary ps-3"
+                                rows="3" placeholder="Brève description..."></textarea>
                         </div>
                     </div>
-                    <div class="modal-footer border-top border-secondary">
-                        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Annuler</button>
-                        <button type="submit" class="btn btn-premium">Enregistrer</button>
+                    <div class="modal-footer border-secondary border-opacity-10 p-4">
+                        <button type="submit" class="btn btn-premium w-100 py-2 fw-bold">Créer la Catégorie</button>
                     </div>
                 </form>
             </div>
@@ -168,6 +163,13 @@ $categories = $pdo->query("SELECT * FROM categories ORDER BY id_category DESC")-
 
     <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
     <script src="../assets/js/app.js"></script>
+    <script>
+        function confirmDel(id) {
+            if (confirm("Supprimer cette catégorie ? Cela n'affectera pas les produits existants (ils deviendront sans catégorie).")) {
+                window.location.href = 'categories.php?delete=' + id;
+            }
+        }
+    </script>
 </body>
 
 </html>

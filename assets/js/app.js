@@ -2,6 +2,27 @@
  * DENIS FBI STORE - Core JS
  */
 
+// Register Service Worker for PWA
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        // TEMPORARY: Unregister to fix cache issues
+        navigator.serviceWorker.getRegistrations().then(function (registrations) {
+            for (let registration of registrations) {
+                registration.unregister();
+            }
+        });
+        /*
+        navigator.serviceWorker.register('/denis/sw.js')
+            .then((registration) => {
+                console.log('ServiceWorker registration successful');
+            })
+            .catch((err) => {
+                console.log('ServiceWorker registration failed: ', err);
+            });
+        */
+    });
+}
+
 let confirmCallback = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -68,33 +89,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Global Confirm Action
 function confirmAction(url, message = "Êtes-vous sûr de vouloir continuer ?") {
-    const modalElement = document.getElementById('confirmationModal');
-    const msgElement = document.getElementById('confirmationMessage');
-    const btnElement = document.getElementById('confirmActionBtn');
-
-    if (modalElement) {
-        msgElement.textContent = message;
-        btnElement.href = url;
-        const bsModal = new bootstrap.Modal(modalElement);
-        bsModal.show();
-        return false; // Prevent default link behavior
+    if (typeof Swal !== 'undefined') {
+        Swal.fire({
+            title: 'Êtes-vous sûr ?',
+            text: message,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Oui, continuer',
+            cancelButtonText: 'Annuler',
+            background: '#1e293b',
+            color: '#fff'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                window.location.href = url;
+            }
+        });
+        return false;
     }
-    return confirm(message); // Fallback
+    return confirm(message);
 }
 
 function showConfirmation(message, callback) {
-    const modalElement = document.getElementById('confirmationModal');
-    const msgElement = document.getElementById('confirmationMessage');
-    const btnElement = document.getElementById('confirmActionBtn');
-
-    if (modalElement) {
-        msgElement.textContent = message;
-        btnElement.href = "#"; // Disable link navigation
-        confirmCallback = callback;
-        const bsModal = new bootstrap.Modal(modalElement);
-        bsModal.show();
+    if (typeof Swal !== 'undefined') {
+        Swal.fire({
+            title: 'Confirmation',
+            text: message,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33',
+            confirmButtonText: 'Oui, confirmer',
+            cancelButtonText: 'Annuler',
+            background: '#1e293b',
+            color: '#fff'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                callback();
+            }
+        });
     } else {
         if (confirm(message)) callback();
+    }
+}
+
+function showAlert(title, message, icon = 'info') {
+    if (typeof Swal !== 'undefined') {
+        Swal.fire({
+            title: title,
+            text: message,
+            icon: icon,
+            background: '#1e293b',
+            color: '#fff'
+        });
+    } else {
+        alert(message);
     }
 }
 
@@ -120,25 +170,4 @@ function togglePassword(inputId, iconId) {
         icon.classList.remove("fa-eye-slash");
         icon.classList.add("fa-eye");
     }
-}
-
-function openEditProductModal(id, name, catId, price, desc) {
-    document.getElementById('edit_id_product').value = id;
-    document.getElementById('edit_name').value = name;
-    document.getElementById('edit_category').value = catId;
-    document.getElementById('edit_price').value = price;
-    document.getElementById('edit_description').value = desc;
-
-    var myModal = new bootstrap.Modal(document.getElementById('editProductModal'));
-    myModal.show();
-}
-
-function openEditClientModal(id, fullname, phone, email) {
-    document.getElementById('edit_id_client').value = id;
-    document.getElementById('edit_fullname').value = fullname;
-    document.getElementById('edit_phone').value = phone;
-    document.getElementById('edit_email').value = email;
-
-    var myModal = new bootstrap.Modal(document.getElementById('editClientModal'));
-    myModal.show();
 }

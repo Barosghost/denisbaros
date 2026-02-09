@@ -9,7 +9,7 @@ if (!isset($_GET['id'])) {
 $sale_id = $_GET['id'];
 
 // Fetch Sale Info
-$query_sale = "SELECT s.*, u.username, c.fullname as client_name 
+$query_sale = "SELECT s.*, u.username, c.fullname as client_name, c.loyalty_points, c.loyalty_level 
                FROM sales s 
                JOIN users u ON s.id_user = u.id_user 
                LEFT JOIN clients c ON s.id_client = c.id_client 
@@ -96,6 +96,17 @@ $details = $stmt->fetchAll();
                 <h5 class="fw-bold">Client</h5>
                 <p class="mb-0">
                     <?= $sale['client_name'] ? htmlspecialchars($sale['client_name']) : 'Client Comptoir' ?>
+                    <?php if (!empty($sale['loyalty_level'])): ?>
+                        <?php
+                        $badges = [
+                            'Bronze' => '<span class="badge bg-secondary" style="background-color: #8D6E63 !important;">Bronze 🟤</span>',
+                            'Argent' => '<span class="badge bg-secondary" style="background-color: #C0C0C0 !important; color: #333;">Argent ⚪</span>',
+                            'Or' => '<span class="badge bg-warning text-dark">Or 🟡</span>',
+                            'Platine' => '<span class="badge bg-info text-dark" style="background-color: #E5E4E2 !important;">Platine 🔵</span>'
+                        ];
+                        ?>
+                        <?= $badges[$sale['loyalty_level']] ?? '' ?>
+                    <?php endif; ?>
                 </p>
             </div>
             <div class="col-6 text-end">
@@ -147,6 +158,30 @@ $details = $stmt->fetchAll();
                 </tr>
             </tfoot>
         </table>
+
+        <?php if (!empty($sale['client_name'])): ?>
+            <?php
+            // Include config to get constants
+            if (file_exists('../config/loyalty_config.php')) {
+                require_once '../config/loyalty_config.php';
+                // Calculate points for this sale (visual estimation based on current config)
+                // Note: Ideally, specific points earned would be stored in sales table or fetched from loyalty_transactions
+                $pointsForThisSale = calculateLoyaltyPoints($sale['total_amount'], $sale['loyalty_level'] ?? 'Bronze');
+            }
+            ?>
+            <div class="row mt-4">
+                <div class="col-6">
+                    <div class="card bg-light border-0">
+                        <div class="card-body">
+                            <h6 class="fw-bold mb-2">💎 Programme de Fidélité</h6>
+                            <p class="mb-1 small">Points gagnés sur cet achat : <strong>+<?= $pointsForThisSale ?? 0 ?>
+                                    pts</strong></p>
+                            <p class="mb-0 small">Solde actuel : <strong><?= $sale['loyalty_points'] ?> pts</strong></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
 
         <div class="text-center mt-5">
             <p class="fw-bold">Merci pour votre confiance !</p>
