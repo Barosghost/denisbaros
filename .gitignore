@@ -1,0 +1,16 @@
+# PHP
+vendor/
+.env
+
+# Backups & Uploads
+backend/uploads/*
+!backend/uploads/.gitkeep
+database/backups/*
+!database/backups/.gitkeep
+
+# IDE & OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+*.log
