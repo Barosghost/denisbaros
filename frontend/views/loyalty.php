@@ -1,29 +1,36 @@
 <?php
-session_start();
-
-if (!isset($_SESSION['logged_in'])) {
-    header("Location: ../index.php");
-    exit();
-}
-
+define('PAGE_ACCESS', 'loyalty');
+require_once '../../backend/includes/auth_required.php';
 require_once '../../backend/config/db.php';
 require_once '../../backend/config/functions.php';
 require_once '../../backend/config/loyalty_config.php';
 
 $pageTitle = "Programme de Fidélité";
 
-// 1. Fetch Rewards
-$rewards = $pdo->query("SELECT * FROM loyalty_rewards WHERE is_active = 1 ORDER BY points_required ASC")->fetchAll();
+$rewards = [];
+$transactions = [];
+$top_clients = [];
 
-// 2. Fetch Recent Transactions (All for now, can be filtered by client)
-$stmt = $pdo->query("SELECT t.*, c.fullname, c.loyalty_points as current_balance 
-                     FROM loyalty_transactions t 
-                     JOIN clients c ON t.id_client = c.id_client 
-                     ORDER BY t.created_at DESC LIMIT 20");
-$transactions = $stmt->fetchAll();
+try {
+    // 1. Rewards (loyalty_rewards: is_active ou status selon migration)
+    $rewardsQ = $pdo->query("SELECT * FROM loyalty_rewards WHERE COALESCE(is_active, 1) = 1 ORDER BY points_required ASC");
+    $rewards = $rewardsQ ? $rewardsQ->fetchAll(PDO::FETCH_ASSOC) : [];
+} catch (PDOException $e) {
+    $rewards = [];
+}
 
-// 3. Top Loyal Clients
-$top_clients = $pdo->query("SELECT * FROM clients ORDER BY loyalty_points DESC LIMIT 5")->fetchAll();
+try {
+    $stmt = $pdo->query("SELECT t.*, c.nom_client as fullname FROM loyalty_transactions t JOIN clients c ON t.id_client = c.id_client ORDER BY t.created_at DESC LIMIT 20");
+    $transactions = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+} catch (PDOException $e) {
+    $transactions = [];
+}
+
+try {
+    $top_clients = $pdo->query("SELECT * FROM clients ORDER BY COALESCE(loyalty_points, 0) DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $top_clients = $pdo->query("SELECT * FROM clients ORDER BY date_inscription DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+}
 ?>
 
 <!DOCTYPE html>
@@ -136,14 +143,15 @@ $top_clients = $pdo->query("SELECT * FROM clients ORDER BY loyalty_points DESC L
                                                 <i class="fa-solid fa-ticket fa-2x"></i>
                                             </div>
                                             <div class="flex-grow-1">
-                                                <h6 class="text-white fw-bold mb-1"><?= htmlspecialchars($reward['name']) ?>
+                                                <h6 class="text-white fw-bold mb-1">
+                                                    <?= htmlspecialchars($reward['reward_name']) ?>
                                                 </h6>
                                                 <div class="text-info fw-bold small">
                                                     <?= number_format($reward['points_required'], 0, ',', ' ') ?> pts
                                                 </div>
                                             </div>
                                             <button class="btn btn-sm btn-light rounded-pill px-3 fw-bold"
-                                                onclick="openRedeemModal(<?= $reward['id_reward'] ?>, '<?= htmlspecialchars($reward['name'], ENT_QUOTES) ?>', <?= $reward['points_required'] ?>)">
+                                                onclick="openRedeemModal(<?= $reward['id_reward'] ?>, '<?= htmlspecialchars($reward['reward_name'], ENT_QUOTES) ?>', <?= $reward['points_required'] ?>)">
                                                 Échanger
                                             </button>
                                         </div>
@@ -153,7 +161,16 @@ $top_clients = $pdo->query("SELECT * FROM clients ORDER BY loyalty_points DESC L
                         </div>
 
                         <!-- Recent History -->
-                        <h5 class="text-white fw-bold mb-3">📜 Historique des Points</h5>
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="text-white fw-bold mb-0">📜 Transactions Récentes</h5>
+                            <div class="input-group input-group-sm" style="width: 200px;">
+                                <span class="input-group-text bg-dark border-secondary text-muted"><i
+                                        class="fa-solid fa-search"></i></span>
+                                <input type="text" id="tableSearch"
+                                    class="form-control bg-dark text-white border-secondary"
+                                    placeholder="Rechercher...">
+                            </div>
+                        </div>
                         <div class="card bg-dark border-0 glass-panel shadow-lg">
                             <div class="card-body p-0">
                                 <div class="table-responsive">
@@ -169,9 +186,9 @@ $top_clients = $pdo->query("SELECT * FROM clients ORDER BY loyalty_points DESC L
                                         </thead>
                                         <tbody>
                                             <?php foreach ($transactions as $t): ?>
-                                                <tr>
+                                                <tr class="transaction-row">
                                                     <td class="ps-4 text-white-50 small">
-                                                        <?= date('d/m H:i', strtotime($t['created_at'])) ?>
+                                                        <?= date('d/m H:i', strtotime($t['date_transaction'])) ?>
                                                     </td>
                                                     <td>
                                                         <div class="text-white fw-bold small">
@@ -212,7 +229,8 @@ $top_clients = $pdo->query("SELECT * FROM clients ORDER BY loyalty_points DESC L
                                             <div class="fw-bold text-muted me-3 fs-5">#<?= $index + 1 ?></div>
                                             <div class="flex-grow-1">
                                                 <div class="d-flex align-items-center justify-content-between mb-1">
-                                                    <div class="text-white fw-bold"><?= htmlspecialchars($c['fullname']) ?>
+                                                    <div class="text-white fw-bold">
+                                                        <?= htmlspecialchars($c['nom_client']) ?>
                                                     </div>
                                                     <div class="add-level-badge">
                                                         <?php if (strpos($levelInfo['icon'], 'fa-') !== false): ?>
@@ -320,7 +338,7 @@ $top_clients = $pdo->query("SELECT * FROM clients ORDER BY loyalty_points DESC L
                                 // Re-query clients to be safe or reuse if available. 
                                 // Note: $top_clients is limited. Let's make a quick full query or reuse $clients from clients.php logic if included? 
                                 // Better to just run a query here for the dropdown.
-                                $all_clients = $pdo->query("SELECT id_client, fullname, loyalty_points FROM clients ORDER BY fullname")->fetchAll();
+                                $all_clients = $pdo->query("SELECT id_client, nom_client as fullname, loyalty_points FROM clients ORDER BY nom_client")->fetchAll();
                                 foreach ($all_clients as $cl): ?>
                                     <option value="<?= $cl['id_client'] ?>">
                                         <?= htmlspecialchars($cl['fullname']) ?> (<?= $cl['loyalty_points'] ?> pts)
@@ -414,6 +432,14 @@ $top_clients = $pdo->query("SELECT * FROM clients ORDER BY loyalty_points DESC L
                     Swal.fire('Erreur', 'Erreur technique', 'error');
                 });
         }
+
+        document.getElementById('tableSearch').addEventListener('input', function () {
+            const term = this.value.toLowerCase().trim();
+            document.querySelectorAll('.transaction-row').forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = text.includes(term) ? '' : 'none';
+            });
+        });
     </script>
 </body>
 

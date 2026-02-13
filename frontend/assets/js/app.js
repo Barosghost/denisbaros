@@ -52,6 +52,19 @@ document.addEventListener('DOMContentLoaded', () => {
         overlay.classList.remove('active');
     });
 
+    // Close sidebar when clicking a link inside it (mobile: smooth transition to new page)
+    if (sidebar) {
+        sidebar.addEventListener('click', (e) => {
+            const link = e.target.closest('a[href]');
+            if (link && link.getAttribute('href') && !link.getAttribute('href').startsWith('#')) {
+                if (window.innerWidth < 768) {
+                    sidebar.classList.remove('active');
+                    if (overlay) overlay.classList.remove('active');
+                }
+            }
+        });
+    }
+
     // Inject Confirmation Modal
     const modalHTML = `
     <div class="modal fade" id="confirmationModal" tabindex="-1" aria-hidden="true">

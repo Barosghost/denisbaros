@@ -1,13 +1,14 @@
 <?php
-session_start();
+require_once '../includes/session_init.php';
 require_once '../config/db.php';
 require_once '../config/functions.php';
+require_once '../includes/ErrorHandler.php';
+require_once '../includes/Logger.php';
 
 header('Content-Type: application/json');
 
 if (!isset($_SESSION['logged_in'])) {
-    echo json_encode(['success' => false, 'message' => 'Non authentifié']);
-    exit();
+    ErrorHandler::handleApiError('Non authentifié', 401);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -59,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$newPoints, $clientId]);
 
         // 4. Log Transaction
-        $stmt = $pdo->prepare("INSERT INTO loyalty_transactions (id_client, transaction_type, points, description) VALUES (?, 'SPEND', ?, ?)");
+        $stmt = $pdo->prepare("INSERT INTO loyalty_transactions (id_client, transaction_type, points, description) VALUES (?, 'REDEEM', ?, ?)");
         $stmt->execute([$clientId, $reward['points_required'], "Échange récompense: " . $reward['name']]);
 
         // 5. Log Activity

@@ -3,12 +3,12 @@
 define('DB_HOST', 'localhost');
 define('DB_USER', 'root');
 define('DB_PASS', '');
-define('DB_NAME', 'denis_fbi_store_baros');
+define('DB_NAME', 'denis_fbi_store');
 
 try {
     $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
     $pdo = new PDO($dsn, DB_USER, DB_PASS);
-    
+
     // Set PDO attributes for better error handling and default fetch mode
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
@@ -17,4 +17,3 @@ try {
 } catch (PDOException $e) {
     die("❌ Erreur de connexion à la base de données : " . $e->getMessage());
 }
-?>

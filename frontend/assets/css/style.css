@@ -652,3 +652,394 @@ h6 {
 #sidebar ul.components::-webkit-scrollbar-thumb:hover {
     background: #3b82f6;
 }
+
+/* ============================================
+   RESPONSIVE GLOBAL - APP TOTALE
+   ============================================ */
+
+/* Base: éviter débordement horizontal */
+html {
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Safe area (encoches / barre dynamique) */
+@supports (padding: env(safe-area-inset-top)) {
+    body { padding-top: env(safe-area-inset-top); }
+    #content { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+    .navbar-custom { padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right)); }
+    #sidebar { padding-left: env(safe-area-inset-left); }
+}
+
+/* Conteneurs: largeur max et padding cohérent */
+#content {
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* Tables: scroll horizontal partout */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 1rem;
+}
+
+.table-responsive table {
+    min-width: 600px;
+}
+
+/* Zones tactiles minimales (44px recommandé) */
+@media (pointer: coarse) {
+    #sidebar ul li a {
+        min-height: 44px;
+        padding: 14px 16px;
+    }
+    .btn {
+        min-height: 44px;
+        padding: 0.6rem 1rem;
+    }
+    .form-control, .form-select {
+        min-height: 44px;
+    }
+}
+
+/* ----- TABLETTE (≤ 1024px) ----- */
+@media (max-width: 1024px) {
+    :root {
+        --sidebar-width: 260px;
+    }
+
+    #content {
+        padding: 1.25rem;
+    }
+
+    .navbar-custom {
+        margin-left: -1.25rem;
+        margin-right: -1.25rem;
+        padding: 1rem 1.25rem;
+    }
+
+    .dashboard-stat-card,
+    .stat-card,
+    .recent-card {
+        padding: 1.25rem;
+    }
+
+    .row.g-4 > [class*="col-"] {
+        margin-bottom: 0.5rem;
+    }
+
+    h4, .navbar-custom h4 {
+        font-size: 1.1rem;
+    }
+}
+
+/* ----- MOBILE (≤ 768px) ----- */
+@media (max-width: 768px) {
+    :root {
+        --sidebar-width: min(280px, 85vw);
+    }
+
+    #sidebar {
+        width: var(--sidebar-width);
+        min-width: var(--sidebar-width);
+        max-width: var(--sidebar-width);
+        margin-left: calc(-1 * var(--sidebar-width));
+        box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+    }
+
+    #sidebar.active {
+        margin-left: 0;
+    }
+
+    #content {
+        margin-left: 0 !important;
+        padding: 1rem;
+        padding-top: 0;
+    }
+
+    .navbar-custom {
+        margin-left: -1rem;
+        margin-right: -1rem;
+        margin-bottom: 1rem;
+        padding: 0.75rem 1rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .navbar-custom .d-flex.justify-content-between {
+        flex-wrap: wrap;
+        width: 100%;
+    }
+
+    .navbar-custom .d-flex.align-items-center:last-child {
+        flex-shrink: 0;
+    }
+
+    /* Titre court sur mobile */
+    .navbar-custom h4 {
+        font-size: 1rem;
+        max-width: calc(100vw - 180px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Masquer "Bienvenue, username" en texte sur très petit écran */
+    .navbar-custom .text-muted.me-3 {
+        display: none;
+    }
+
+    .navbar-custom .rounded-circle {
+        width: 36px !important;
+        height: 36px !important;
+        font-size: 0.85rem;
+    }
+
+    .navbar-custom .btn-danger {
+        padding: 0.4rem 0.75rem;
+        font-size: 0.9rem;
+    }
+
+    .navbar-custom .me-3 {
+        margin-right: 0.5rem !important;
+    }
+
+    .navbar-custom .ms-3 {
+        margin-left: 0.5rem !important;
+    }
+
+    /* Overlay sidebar mobile */
+    .overlay {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 1040;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+    }
+
+    .overlay.active {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    /* Cartes dashboard / stats */
+    .dashboard-stat-card {
+        padding: 1.25rem;
+    }
+
+    .dashboard-stat-card .h2 {
+        font-size: 1.5rem;
+    }
+
+    .stat-icon-large {
+        width: 56px;
+        height: 56px;
+        font-size: 1.5rem;
+    }
+
+    .recent-card {
+        padding: 1rem;
+    }
+
+    .recent-card h5 {
+        font-size: 1rem;
+    }
+
+    .action-btn-premium {
+        padding: 12px 16px;
+        min-height: 44px;
+    }
+
+    /* Tables */
+    .table-responsive {
+        font-size: 0.85rem;
+        margin-left: -1rem;
+        margin-right: -1rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .table th, .table td {
+        padding: 0.6rem 0.5rem;
+    }
+
+    .table thead th {
+        font-size: 0.75rem;
+    }
+
+    /* Modals pleine largeur sur mobile */
+    .modal-dialog {
+        margin: 0.5rem;
+        max-width: calc(100% - 1rem);
+    }
+
+    .modal-fullscreen-sm-down .modal-dialog {
+        max-width: 100%;
+        margin: 0;
+    }
+
+    /* Formulaires */
+    .form-control, .form-select {
+        font-size: 16px; /* évite zoom iOS sur focus */
+    }
+
+    .input-group {
+        flex-wrap: wrap;
+    }
+
+    .btn-group {
+        flex-direction: column;
+    }
+
+    .btn-group .btn {
+        width: 100%;
+        border-radius: 8px !important;
+    }
+
+    /* Grilles Bootstrap: colonnes pleine largeur si utile */
+    /* Grilles: une colonne sur mobile sauf si row spécifique */
+    .row.g-4 .col-lg-8,
+    .row.g-4 .col-lg-4 {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+
+    /* Login */
+    .login-card {
+        max-width: 98%;
+        margin: 0.5rem;
+    }
+
+    .login-form-side, .login-brand-side {
+        padding: 1.5rem !important;
+    }
+}
+
+/* ----- PETIT MOBILE (≤ 480px) ----- */
+@media (max-width: 480px) {
+    #content {
+        padding: 0.75rem;
+    }
+
+    .navbar-custom {
+        padding: 0.6rem 0.75rem;
+        margin-left: -0.75rem;
+        margin-right: -0.75rem;
+    }
+
+    .navbar-custom h4 {
+        font-size: 0.95rem;
+        max-width: calc(100vw - 140px);
+    }
+
+    .dashboard-stat-card .h2 {
+        font-size: 1.35rem;
+    }
+
+    .stat-icon-large {
+        width: 48px;
+        height: 48px;
+        font-size: 1.25rem;
+    }
+
+    .table-responsive {
+        font-size: 0.8rem;
+    }
+
+    .badge {
+        font-size: 0.7rem;
+        padding: 0.3em 0.5em;
+    }
+
+    .card-body {
+        padding: 1rem;
+    }
+
+    .card-header {
+        padding: 0.75rem 1rem;
+    }
+
+    .btn-premium {
+        padding: 0.6rem 1rem;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .d-flex.gap-2, .d-flex.gap-3 {
+        flex-wrap: wrap;
+    }
+}
+
+/* ----- PAYSAGE MOBILE ----- */
+@media (max-height: 500px) and (orientation: landscape) {
+    #sidebar {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .sidebar-header {
+        padding: 1rem;
+    }
+
+    .sidebar-header h3 {
+        font-size: 1rem;
+    }
+
+    #sidebar ul.components {
+        padding: 1rem 0.75rem;
+    }
+}
+
+/* Utilitaires responsive */
+@media (max-width: 768px) {
+    .d-mobile-none { display: none !important; }
+    .w-mobile-100 { width: 100% !important; max-width: 100% !important; }
+    .text-mobile-center { text-align: center !important; }
+}
+
+/* Champs number/date: 16px évite zoom auto iOS */
+@media (max-width: 768px) {
+    input[type="number"],
+    input[type="date"],
+    input[type="datetime-local"] {
+        font-size: 16px;
+    }
+}
+
+/* POS / Grilles produits */
+@media (max-width: 768px) {
+    .pos-product-card .pos-img-wrapper {
+        height: 140px;
+    }
+    .pos-product-card .card-body {
+        padding: 0.75rem;
+    }
+    .pos-cart-panel, .pos-products-grid {
+        max-width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .pos-product-card .pos-img-wrapper {
+        height: 120px;
+    }
+}
+
+/* Cartes type reseller-card, product-card, etc. */
+@media (max-width: 768px) {
+    .reseller-card-item,
+    .product-card-item,
+    [class*="-card-item"] {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+}

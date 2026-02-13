@@ -1,65 +1,96 @@
 <?php
-session_start();
-
-if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'admin') {
-    header("Location: dashboard.php");
-    exit();
-}
-
+define('PAGE_ACCESS', 'reports');
+require_once '../../backend/includes/auth_required.php';
 require_once '../../backend/config/db.php';
-require_once '../../backend/config/functions.php';
 $pageTitle = "Rapports & Statistiques";
 
 // Defaults: Current Month
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t');
 
-// 1. Sales Data for Table
-$query = "SELECT s.*, u.username, c.fullname as client_name 
-          FROM sales s 
-          JOIN users u ON s.id_user = u.id_user 
-          LEFT JOIN clients c ON s.id_client = c.id_client 
-          WHERE DATE(s.sale_date) BETWEEN ? AND ? 
-          ORDER BY s.sale_date DESC";
+// --- 1. DATA PROCESSING ---
+
+// A. SALES & BOUTIQUE BREAKDOWN
+$query = "SELECT v.*, u.username, c.nom_client as client_name, r.nom_partenaire as reseller_name, r.taux_commission_fixe
+          FROM ventes v 
+          LEFT JOIN utilisateurs u ON v.id_vendeur = u.id_user 
+          LEFT JOIN clients c ON v.id_client = c.id_client 
+          LEFT JOIN revendeurs r ON v.id_revendeur = r.id_revendeur
+          WHERE DATE(v.date_vente) BETWEEN ? AND ? 
+          ORDER BY v.date_vente DESC";
 $stmt = $pdo->prepare($query);
 $stmt->execute([$start_date, $end_date]);
-$sales = $stmt->fetchAll();
+$sales = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// 2. Metrics (Revenue & Margin)
-$stmt_rev = $pdo->prepare("SELECT SUM(total_amount) FROM sales WHERE DATE(sale_date) BETWEEN ? AND ?");
-$stmt_rev->execute([$start_date, $end_date]);
-$total_revenue = $stmt_rev->fetchColumn() ?: 0;
+$boutique_total = 0; // Total Sales Amount
+$boutique_internal = 0;
+$boutique_reseller = 0;
+$total_commissions = 0;
+$total_cost = 0;
 
+foreach ($sales as $sale) {
+    if ($sale['id_revendeur']) {
+        // Dynamic commission calculation: taux_commission_fixe * prix_revente_final
+        $commission = ($sale['taux_commission_fixe'] / 100) * $sale['prix_revente_final'];
+        $total_commissions += $commission;
+        $boutique_reseller += $sale['prix_revente_final'];
+    } else {
+        $boutique_internal += $sale['prix_revente_final'];
+    }
+    $boutique_total += $sale['prix_revente_final'];
+}
+
+// B. COST CALCULATION (for margin)
 $stmt_cost = $pdo->prepare("
-    SELECT SUM(sd.quantity * p.purchase_price) 
-    FROM sale_details sd 
-    JOIN products p ON sd.id_product = p.id_product 
-    JOIN sales s ON sd.id_sale = s.id_sale
-    WHERE DATE(s.sale_date) BETWEEN ? AND ?
+    SELECT SUM(vd.quantite * p.prix_achat) 
+    FROM vente_details vd 
+    JOIN produits p ON vd.id_produit = p.id_produit 
+    JOIN ventes v ON vd.id_vente = v.id_vente
+    WHERE DATE(v.date_vente) BETWEEN ? AND ?
 ");
 $stmt_cost->execute([$start_date, $end_date]);
 $total_cost = $stmt_cost->fetchColumn() ?: 0;
+$global_margin = $boutique_total - $total_commissions - $total_cost;
 
-$margin = $total_revenue - $total_cost;
+// C. RESELLERS PERFORMANCE
+$sql_resellers = "SELECT r.nom_partenaire as fullname, 
+                         COUNT(v.id_vente) as sale_count, 
+                         SUM(v.prix_revente_final) as revenue_generated, 
+                         SUM((r.taux_commission_fixe / 100) * v.prix_revente_final) as commission_total
+                  FROM revendeurs r
+                  LEFT JOIN ventes v ON r.id_revendeur = v.id_revendeur AND DATE(v.date_vente) BETWEEN ? AND ?
+                  GROUP BY r.id_revendeur";
+$stmt_resellers = $pdo->prepare($sql_resellers);
+$stmt_resellers->execute([$start_date, $end_date]);
+$resellers_stats = $stmt_resellers->fetchAll(PDO::FETCH_ASSOC);
 
-// 3. Chart Data (Sales & Profit by Day)
-$stmt = $pdo->prepare("
+// D. TECHNICAL SERVICE STATS
+$stmt_tech_stats = $pdo->prepare("SELECT statut_sav as status, COUNT(*) as count FROM sav_dossiers WHERE DATE(date_depot) BETWEEN ? AND ? GROUP BY statut_sav");
+$stmt_tech_stats->execute([$start_date, $end_date]);
+$tech_status_stats = $stmt_tech_stats->fetchAll(PDO::FETCH_ASSOC);
+
+$stmt_tech_perf = $pdo->prepare("
+    SELECT t.fullname, COUNT(s.id_sav) as total, SUM(CASE WHEN s.statut_sav IN ('livre','pret') THEN 1 ELSE 0 END) as done
+    FROM technicians t
+    LEFT JOIN sav_dossiers s ON t.id_technician = s.id_technicien AND DATE(s.date_depot) BETWEEN ? AND ?
+    GROUP BY t.id_technician
+");
+$stmt_tech_perf->execute([$start_date, $end_date]);
+$tech_performance = $stmt_tech_perf->fetchAll(PDO::FETCH_ASSOC);
+
+// E. CHART DATA
+$stmt_chart = $pdo->prepare("
     SELECT 
-        DATE(s.sale_date) as d, 
-        SUM(s.total_amount) as t,
-        SUM(s.total_amount) - SUM(sd.quantity * p.purchase_price) as p
-    FROM sales s 
-    JOIN sale_details sd ON s.id_sale = sd.id_sale
-    JOIN products p ON sd.id_product = p.id_product
-    WHERE DATE(s.sale_date) BETWEEN ? AND ? 
-    GROUP BY DATE(s.sale_date) 
+        DATE(v.date_vente) as d, 
+        SUM(v.prix_revente_final) as t
+    FROM ventes v 
+    WHERE DATE(v.date_vente) BETWEEN ? AND ? 
+    GROUP BY DATE(v.date_vente) 
     ORDER BY d ASC
 ");
-$stmt->execute([$start_date, $end_date]);
-$chart_data = $stmt->fetchAll();
+$stmt_chart->execute([$start_date, $end_date]);
+$chart_data = $stmt_chart->fetchAll(PDO::FETCH_ASSOC);
 
-// 4. Activity Logs
-$logs = $pdo->query("SELECT l.*, u.username FROM action_logs l JOIN users u ON l.id_user = u.id_user ORDER BY l.created_at DESC LIMIT 50")->fetchAll();
 ?>
 
 <!DOCTYPE html>
@@ -71,107 +102,39 @@ $logs = $pdo->query("SELECT l.*, u.username FROM action_logs l JOIN users u ON l
     <title>Rapports | DENIS FBI STORE</title>
     <link href="../assets/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="../assets/vendor/fontawesome/css/all.min.css">
-    <link rel="stylesheet" href="../assets/css/style.css?v=1.5">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="../assets/css/style.css">
+    <script src="../assets/vendor/chart.js/chart.umd.js"></script>
     <style>
-        @media print {
-            @page {
-                margin: 0;
-            }
-
-            body {
-                padding: 15mm;
-                background: white !important;
-                color: black !important;
-            }
-
-            .no-print {
-                display: none !important;
-            }
-
-            .print-only {
-                display: block !important;
-            }
-
-            .wrapper {
-                display: block;
-            }
-
-            #content {
-                margin: 0 !important;
-                padding: 0 !important;
-                width: 100% !important;
-            }
-
-            .card {
-                background: white !important;
-                color: black !important;
-                border: 1px solid #ddd !important;
-                box-shadow: none !important;
-            }
-
-            canvas {
-                max-width: 100% !important;
-            }
-        }
-
-        .print-only {
-            display: none;
-        }
-
-        .chart-container-glow {
-            position: relative;
-            filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.2));
-        }
-
-        .chart-card {
-            background: rgba(15, 23, 42, 0.4) !important;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        }
-
         .report-stat-card {
-            border-radius: 20px;
+            border-radius: 16px;
             padding: 1.5rem;
             position: relative;
             overflow: hidden;
             border: 1px solid rgba(255, 255, 255, 0.05);
             background: rgba(15, 23, 42, 0.4);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: transform 0.2s;
         }
 
-        .report-stat-card:hover {
-            transform: translateY(-5px);
-            background: rgba(15, 23, 42, 0.6);
-            border-color: rgba(255, 255, 255, 0.1);
-        }
-
-        .report-stat-card .icon-box {
-            width: 54px;
-            height: 54px;
-            border-radius: 14px;
+        .icon-box {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             margin-bottom: 1rem;
         }
 
-        .bg-revenue {
-            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(99, 102, 241, 0.05) 100%);
-            color: #818cf8;
-        }
-
-        .bg-margin {
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0.05) 100%);
-            color: #34d399;
-        }
-
-        .filter-glass {
-            background: rgba(15, 23, 42, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 16px;
-            padding: 1.25rem;
+        .section-header {
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            color: #94a3b8;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            border-left: 3px solid #6366f1;
+            padding-left: 10px;
         }
     </style>
 </head>
@@ -186,189 +149,224 @@ $logs = $pdo->query("SELECT l.*, u.username FROM action_logs l JOIN users u ON l
                 <?php include '../../backend/includes/header.php'; ?>
             </div>
 
-            <!-- Print Header -->
-            <div class="print-only text-center mb-4">
-                <h1 class="fw-bold" style="color: #000;">DENIS FBI STORE</h1>
-                <p class="mb-0">Rapport d'Activité Commerciale</p>
-                <p class="small text-muted">Généré le <?= date('d/m/Y H:i') ?></p>
-                <hr>
-            </div>
+            <div class="fade-in mt-3">
 
-            <div class="fade-in mt-4">
-                <!-- Filter Bar -->
-                <div class="filter-glass mb-4 no-print">
+                <!-- Filter -->
+                <div class="card bg-dark border-0 glass-panel mb-4 p-3">
                     <form method="GET" class="row g-3 align-items-end">
                         <div class="col-md-3">
-                            <label class="form-label text-muted small fw-bold">DATE DÉBUT</label>
+                            <label class="text-muted small fw-bold">DÉBUT</label>
                             <input type="date" name="start_date"
                                 class="form-control bg-dark text-white border-secondary" value="<?= $start_date ?>">
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label text-muted small fw-bold">DATE FIN</label>
+                            <label class="text-muted small fw-bold">FIN</label>
                             <input type="date" name="end_date" class="form-control bg-dark text-white border-secondary"
                                 value="<?= $end_date ?>">
                         </div>
                         <div class="col-md-2">
-                            <button type="submit" class="btn btn-premium w-100 py-2">
-                                <i class="fa-solid fa-sync-alt me-2"></i>Actualiser
-                            </button>
-                        </div>
-                        <div class="col-md-4 text-end">
-                            <div class="btn-group">
-                                <button type="button" class="btn btn-outline-light px-3" onclick="window.print()">
-                                    <i class="fa-solid fa-file-pdf me-2"></i>PDF
-                                </button>
-                                <button type="button" class="btn btn-outline-success px-3" onclick="exportExcel()">
-                                    <i class="fa-solid fa-file-excel me-2"></i>Excel
-                                </button>
-                            </div>
+                            <button type="submit" class="btn btn-premium w-100"><i
+                                    class="fa-solid fa-sync-alt me-2"></i>Filtrer</button>
                         </div>
                     </form>
                 </div>
 
-                <!-- Summary Cards -->
-                <div class="row g-4 mb-4">
-                    <div class="col-md-6">
+                <!-- 1. GLOBAL SUMMARY CARDS -->
+                <div class="section-header">Vue d'ensemble Financière</div>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
                         <div class="report-stat-card">
-                            <div class="icon-box bg-revenue">
-                                <i class="fa-solid fa-sack-dollar"></i>
-                            </div>
-                            <div class="text-muted small fw-bold text-uppercase mb-1">Chiffre d'Affaires</div>
-                            <h2 class="text-white fw-bold mb-1"><?= number_format($total_revenue, 0, ',', ' ') ?> <span
-                                    class="fs-6 fw-normal opacity-50">FCFA</span></h2>
-                            <div class="text-info extra-small mt-2">
-                                <i class="fa-solid fa-calendar-day me-1"></i>Période sélectionnée
-                            </div>
+                            <div class="icon-box bg-primary bg-opacity-10 text-primary"><i
+                                    class="fa-solid fa-sack-dollar"></i></div>
+                            <div class="text-muted extra-small fw-bold text-uppercase">Chiffre d'Affaires Total</div>
+                            <h3 class="text-white fw-bold mb-0"><?= number_format($boutique_total, 0, ',', ' ') ?>
+                                <small class="fs-6 text-muted">FCFA</small>
+                            </h3>
                         </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="report-stat-card">
-                            <div class="icon-box bg-margin">
-                                <i class="fa-solid fa-chart-line"></i>
+                            <div class="icon-box bg-success bg-opacity-10 text-success"><i class="fa-solid fa-shop"></i>
                             </div>
-                            <div class="text-muted small fw-bold text-uppercase mb-1">Marge Bénéficiaire</div>
-                            <h2 class="text-white fw-bold mb-1"><?= number_format($margin, 0, ',', ' ') ?> <span
-                                    class="fs-6 fw-normal opacity-50">FCFA</span></h2>
-                            <div class="text-success extra-small mt-2">
-                                <i class="fa-solid fa-check-circle me-1"></i>Calculé sur prix d'achat
-                            </div>
+                            <div class="text-muted extra-small fw-bold text-uppercase">Bénéfice Net Boutique</div>
+                            <h3 class="text-white fw-bold mb-0"><?= number_format($global_margin, 0, ',', ' ') ?> <small
+                                    class="fs-6 text-muted">FCFA</small></h3>
                         </div>
                     </div>
-                </div>
-
-                <!-- Chart & Logs -->
-                <div class="row g-4 mb-4">
-                    <div class="col-lg-12">
-                        <div class="card chart-card border-0 glass-panel h-100">
-                            <div
-                                class="card-header border-bottom border-secondary border-opacity-20 text-white d-flex justify-content-between align-items-center py-3 px-4">
-                                <span class="fw-bold">Performance des Ventes & Bénéfices</span>
-                                <span class="badge bg-primary bg-opacity-10 text-primary small fw-normal">Temps
-                                    Réel</span>
-                            </div>
-                            <div class="card-body p-4">
-                                <div class="chart-container-glow" style="height: 350px;">
-                                    <canvas id="salesChart"></canvas>
-                                </div>
-                            </div>
+                    <div class="col-md-4">
+                        <div class="report-stat-card">
+                            <div class="icon-box bg-warning bg-opacity-10 text-warning"><i
+                                    class="fa-solid fa-handshake"></i></div>
+                            <div class="text-muted extra-small fw-bold text-uppercase">Total Commissions</div>
+                            <h3 class="text-white fw-bold mb-0"><?= number_format($total_commissions, 0, ',', ' ') ?>
+                                <small class="fs-6 text-muted">FCFA</small>
+                            </h3>
                         </div>
                     </div>
                 </div>
 
                 <div class="row g-4 mb-4">
+                    <!-- CHARTS -->
                     <div class="col-lg-8">
                         <div class="card chart-card border-0 glass-panel h-100">
                             <div
                                 class="card-header border-bottom border-secondary border-opacity-20 text-white py-3 px-4 fw-bold">
-                                Volume des Transactions</div>
+                                Évolution des Ventes</div>
                             <div class="card-body p-4">
-                                <div style="height: 250px;">
-                                    <canvas id="volumeChart"></canvas>
-                                </div>
+                                <div style="height: 300px;"><canvas id="salesChart"></canvas></div>
                             </div>
                         </div>
                     </div>
-                    <div class="col-lg-4 no-print">
-                        <div class="card bg-dark border-0 glass-panel h-100 shadow-lg">
+
+                    <!-- BOUTIQUE DETAILS -->
+                    <div class="col-lg-4">
+                        <div class="card border-0 glass-panel h-100">
                             <div
                                 class="card-header border-bottom border-secondary border-opacity-20 text-white py-3 px-4 fw-bold">
-                                Fils d'Activité</div>
-                            <div class="card-body p-0 overflow-auto" style="max-height: 250px;">
-                                <div class="list-group list-group-flush bg-transparent">
-                                    <?php foreach ($logs as $l): ?>
-                                        <div
-                                            class="list-group-item bg-transparent text-white border-secondary border-opacity-20 py-3 px-4">
-                                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                                <span
-                                                    class="small fw-bold text-premium"><?= htmlspecialchars($l['username']) ?></span>
-                                                <span
-                                                    class="extra-small text-muted"><?= date('H:i', strtotime($l['created_at'])) ?></span>
-                                            </div>
-                                            <div class="small fw-medium mb-1"><?= htmlspecialchars($l['action']) ?></div>
-                                            <div class="text-muted extra-small">
-                                                <?= htmlspecialchars($l['details']) ?>
-                                            </div>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
+                                Détail Ventes</div>
+                            <div class="card-body p-0">
+                                <ul class="list-group list-group-flush bg-transparent">
+                                    <li
+                                        class="list-group-item bg-transparent text-white d-flex justify-content-between py-3 border-secondary border-opacity-20">
+                                        <span>Ventes Magasin</span>
+                                        <span class="fw-bold"><?= number_format($boutique_internal, 0, ',', ' ') ?>
+                                            FCFA</span>
+                                    </li>
+                                    <li
+                                        class="list-group-item bg-transparent text-white d-flex justify-content-between py-3 border-secondary border-opacity-20">
+                                        <span>Ventes Revendeurs</span>
+                                        <span class="fw-bold"><?= number_format($boutique_reseller, 0, ',', ' ') ?>
+                                            FCFA</span>
+                                    </li>
+                                    <li
+                                        class="list-group-item bg-transparent text-white d-flex justify-content-between py-3 border-secondary border-opacity-20">
+                                        <span class="text-muted">Coût Marchandises</span>
+                                        <span class="text-muted">- <?= number_format($total_cost, 0, ',', ' ') ?>
+                                            FCFA</span>
+                                    </li>
+                                    <li
+                                        class="list-group-item bg-transparent text-white d-flex justify-content-between py-3 border-secondary border-opacity-20">
+                                        <span class="text-muted">Commissions Dues</span>
+                                        <span class="text-muted">- <?= number_format($total_commissions, 0, ',', ' ') ?>
+                                            FCFA</span>
+                                    </li>
+                                </ul>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Table -->
+                <!-- TABLES -->
+                <div class="row g-4 mb-4">
+                    <div class="col-lg-6">
+                        <div class="card border-0 glass-panel h-100">
+                            <div
+                                class="card-header border-bottom border-secondary border-opacity-20 text-white py-3 px-4 fw-bold">
+                                Performance Revendeurs</div>
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover mb-0 small">
+                                    <thead>
+                                        <tr>
+                                            <th>Nom</th>
+                                            <th class="text-center">Ventes</th>
+                                            <th class="text-end">CA Généré</th>
+                                            <th class="text-end">Commissions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($resellers_stats as $rs): ?>
+                                            <tr>
+                                                <td class="fw-bold"><?= htmlspecialchars($rs['fullname']) ?></td>
+                                                <td class="text-center"><?= $rs['sale_count'] ?></td>
+                                                <td class="text-end">
+                                                    <?= number_format($rs['revenue_generated'], 0, ',', ' ') ?>
+                                                </td>
+                                                <td class="text-end text-warning">
+                                                    <?= number_format($rs['commission_total'], 0, ',', ' ') ?>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6">
+                        <div class="card border-0 glass-panel h-100">
+                            <div
+                                class="card-header border-bottom border-secondary border-opacity-20 text-white py-3 px-4 fw-bold">
+                                Service SAV</div>
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover mb-0 small">
+                                    <thead>
+                                        <tr>
+                                            <th>Technicien</th>
+                                            <th class="text-center">Dossiers</th>
+                                            <th class="text-end">Terminés</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($tech_performance as $tp): ?>
+                                            <tr>
+                                                <td><?= htmlspecialchars($tp['fullname']) ?></td>
+                                                <td class="text-center"><?= $tp['total'] ?></td>
+                                                <td class="text-end text-success fw-bold"><?= $tp['done'] ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- JOURNAL -->
                 <div class="card bg-dark border-0 glass-panel shadow-lg">
                     <div
                         class="card-header border-bottom border-secondary border-opacity-20 text-white py-3 px-4 d-flex justify-content-between align-items-center">
                         <span class="fw-bold">Journal des Ventes</span>
-                        <span class="text-muted small"><?= count($sales) ?> transactions trouvées</span>
+                        <span class="badge bg-secondary bg-opacity-20 text-muted"><?= count($sales) ?>
+                            transactions</span>
                     </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-dark table-hover mb-0 align-middle" id="salesTable">
-                                <thead class="border-bottom border-secondary border-opacity-20">
-                                    <tr class="text-muted small">
-                                        <th class="py-3 px-4">DATE & HEURE</th>
-                                        <th class="py-3">CLIENT</th>
-                                        <th class="py-3 text-center">VENDEUR</th>
-                                        <th class="py-3 text-end">MONTANT TOTAL</th>
-                                        <th class="py-3 text-end px-4 no-print">ACTIONS</th>
+                    <div class="table-responsive" style="max-height: 500px;">
+                        <table class="table table-dark table-hover mb-0 align-middle small">
+                            <thead class="bg-dark sticky-top">
+                                <tr>
+                                    <th class="px-3">Date</th>
+                                    <th>Client</th>
+                                    <th>Vendeur</th>
+                                    <th class="text-end">Total</th>
+                                    <th class="text-end">Comm.</th>
+                                    <th class="text-end px-4">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($sales as $s):
+                                    $comm = ($s['id_revendeur']) ? ($s['taux_commission_fixe'] / 100) * $s['prix_revente_final'] : 0;
+                                    ?>
+                                    <tr>
+                                        <td class="px-3 text-muted"><?= date('d/m H:i', strtotime($s['date_vente'])) ?></td>
+                                        <td><?= htmlspecialchars($s['client_name'] ?? 'Passage') ?></td>
+                                        <td><?= htmlspecialchars($s['username']) ?></td>
+                                        <td class="text-end fw-bold">
+                                            <?= number_format($s['prix_revente_final'], 0, ',', ' ') ?>
+                                        </td>
+                                        <td class="text-end text-muted">
+                                            <?= $comm > 0 ? number_format($comm, 0, ',', ' ') : '-' ?>
+                                        </td>
+                                        <td class="text-end px-4">
+                                            <a href="invoice.php?id=<?= $s['id_vente'] ?>" target="_blank"
+                                                class="btn btn-sm btn-outline-light border-0"><i
+                                                    class="fa-solid fa-print"></i></a>
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($sales as $s): ?>
-                                        <tr>
-                                            <td class="px-4">
-                                                <div class="text-white fw-medium small">
-                                                    <?= date('d/m/Y', strtotime($s['sale_date'])) ?></div>
-                                                <div class="text-muted extra-small">
-                                                    <?= date('H:i', strtotime($s['sale_date'])) ?></div>
-                                            </td>
-                                            <td>
-                                                <div class="fw-bold text-white small">
-                                                    <?= htmlspecialchars($s['client_name'] ?? 'Vente au Comptoir') ?></div>
-                                            </td>
-                                            <td class="text-center">
-                                                <span
-                                                    class="badge bg-secondary bg-opacity-10 text-muted extra-small px-2 fw-normal">@<?= htmlspecialchars($s['username']) ?></span>
-                                            </td>
-                                            <td class="text-end fw-bold text-success px-3">
-                                                <?= number_format($s['total_amount'], 0, ',', ' ') ?> <span
-                                                    class="extra-small opacity-50">FCFA</span>
-                                            </td>
-                                            <td class="text-end px-4 no-print">
-                                                <a href="invoice.php?id=<?= $s['id_sale'] ?>" target="_blank"
-                                                    class="btn btn-sm btn-outline-light border-0">
-                                                    <i class="fa-solid fa-print"></i>
-                                                </a>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
+
             </div>
         </div>
     </div>
@@ -376,177 +374,29 @@ $logs = $pdo->query("SELECT l.*, u.username FROM action_logs l JOIN users u ON l
     <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
     <script src="../assets/js/app.js"></script>
     <script>
-        // Global Chart Defaults
         Chart.defaults.color = '#94a3b8';
-        Chart.defaults.font.family = "'Inter', sans-serif";
-
         const ctx = document.getElementById('salesChart').getContext('2d');
-
-        // Advanced Gradients
-        const salesGradient = ctx.createLinearGradient(0, 0, 0, 400);
-        salesGradient.addColorStop(0, 'rgba(99, 102, 241, 0.4)');
-        salesGradient.addColorStop(0.5, 'rgba(99, 102, 241, 0.1)');
-        salesGradient.addColorStop(1, 'rgba(99, 102, 241, 0)');
-
-        const profitGradient = ctx.createLinearGradient(0, 0, 0, 400);
-        profitGradient.addColorStop(0, 'rgba(16, 185, 129, 0.3)');
-        profitGradient.addColorStop(0.5, 'rgba(16, 185, 129, 0.05)');
-        profitGradient.addColorStop(1, 'rgba(16, 185, 129, 0)');
-
         new Chart(ctx, {
             type: 'line',
             data: {
                 labels: <?= json_encode(array_column($chart_data, 'd')) ?>,
-                datasets: [
-                    {
-                        label: 'Ventes',
-                        data: <?= json_encode(array_column($chart_data, 't')) ?>,
-                        borderColor: '#6366f1',
-                        backgroundColor: salesGradient,
-                        fill: true,
-                        tension: 0.45,
-                        borderWidth: 4,
-                        pointBackgroundColor: '#6366f1',
-                        pointBorderColor: 'rgba(255,255,255,0.8)',
-                        pointBorderWidth: 2,
-                        pointHoverRadius: 8,
-                        pointRadius: 5,
-                        shadowColor: 'rgba(99, 102, 241, 0.5)',
-                        shadowBlur: 10
-                    },
-                    {
-                        label: 'Bénéfice',
-                        data: <?= json_encode(array_column($chart_data, 'p')) ?>,
-                        borderColor: '#10b981',
-                        backgroundColor: profitGradient,
-                        fill: true,
-                        tension: 0.45,
-                        borderWidth: 3,
-                        pointBackgroundColor: '#10b981',
-                        pointBorderColor: 'rgba(255,255,255,0.8)',
-                        pointBorderWidth: 2,
-                        pointHoverRadius: 7,
-                        pointRadius: 4
-                    }
-                ]
+                datasets: [{
+                    label: 'Ventes',
+                    data: <?= json_encode(array_column($chart_data, 't')) ?>,
+                    borderColor: '#6366f1',
+                    tension: 0.4,
+                    pointRadius: 4
+                }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                layout: {
-                    padding: { top: 10, bottom: 10, left: 10, right: 10 }
-                },
-                interaction: {
-                    intersect: false,
-                    mode: 'index',
-                },
                 scales: {
-                    y: {
-                        beginAtZero: true,
-                        border: { display: false },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.03)',
-                            drawTicks: false
-                        },
-                        ticks: {
-                            padding: 10,
-                            callback: function (value) {
-                                if (value >= 1000) return (value / 1000) + 'k';
-                                return value;
-                            }
-                        }
-                    },
-                    x: {
-                        border: { display: false },
-                        grid: {
-                            display: false
-                        },
-                        ticks: {
-                            padding: 10
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top',
-                        align: 'end',
-                        labels: {
-                            color: '#fff',
-                            usePointStyle: true,
-                            boxWidth: 8,
-                            padding: 20,
-                            font: { weight: 'bold' }
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                        titleColor: '#fff',
-                        bodyColor: '#e2e8f0',
-                        borderColor: 'rgba(99, 102, 241, 0.3)',
-                        borderWidth: 1,
-                        padding: 12,
-                        displayColors: true,
-                        bodySpacing: 8,
-                        boxPadding: 6,
-                        callbacks: {
-                            label: function (context) {
-                                let label = context.dataset.label || '';
-                                if (label) label += ': ';
-                                if (context.parsed.y !== null) {
-                                    label += new Intl.NumberFormat('fr-FR').format(context.parsed.y) + ' FCFA';
-                                }
-                                return label;
-                            }
-                        }
-                    }
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' } },
+                    x: { grid: { display: false } }
                 }
             }
         });
-
-        // Volume Chart (Bar) - Matching reference
-        const ctx2 = document.getElementById('volumeChart').getContext('2d');
-        new Chart(ctx2, {
-            type: 'bar',
-            data: {
-                labels: <?= json_encode(array_column($chart_data, 'd')) ?>,
-                datasets: [{
-                    label: 'Nb Transactions',
-                    data: <?= json_encode(array_map(function ($d) use ($sales) {
-                        return count(array_filter($sales, function ($s) use ($d) {
-                            return date('Y-m-d', strtotime($s['sale_date'])) == $d['d'];
-                        }));
-                    }, $chart_data)) ?>,
-                    backgroundColor: 'rgba(99, 102, 241, 0.6)',
-                    hoverBackgroundColor: '#6366f1',
-                    borderRadius: 6,
-                    barThickness: 20
-                }]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: {
-                    y: { grid: { color: 'rgba(255,255,255,0.03)' }, border: { display: false } },
-                    x: { grid: { display: false }, border: { display: false } }
-                },
-                plugins: { legend: { display: false } }
-            }
-        });
-
-        function exportExcel() {
-            let table = document.getElementById("salesTable");
-            let csv = [];
-            for (let i = 0; i < table.rows.length; i++) {
-                let row = [], cols = table.rows[i].cells;
-                for (let j = 0; j < cols.length - 1; j++) row.push(cols[j].innerText.replace(' FCFA', '').replace(/ /g, ''));
-                csv.push(row.join(";"));
-            }
-            let blob = new Blob([csv.join("\n")], { type: 'text/csv;charset=utf-8;' });
-            let link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = "rapport_ventes.csv";
-            link.click();
-        }
     </script>
 </body>
 

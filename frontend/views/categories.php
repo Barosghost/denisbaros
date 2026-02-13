@@ -1,13 +1,20 @@
 <?php
-session_start();
-
-if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'admin') {
-    header("Location: dashboard.php");
-    exit();
-}
-
+define('PAGE_ACCESS', 'categories');
+require_once '../../backend/includes/auth_required.php';
 require_once '../../backend/config/db.php';
 $pageTitle = "Gestion des Catégories";
+
+// Créer la table categories si elle n'existe pas (compatibilité anciennes bases)
+try {
+    $pdo->query("SELECT 1 FROM categories LIMIT 1");
+} catch (PDOException $e) {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS categories (
+        id_category INT PRIMARY KEY AUTO_INCREMENT,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
 
 // Handle Add
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'add') {
@@ -58,8 +65,16 @@ $categories = $pdo->query("SELECT * FROM categories ORDER BY id_category DESC")-
             <?php include '../../backend/includes/header.php'; ?>
 
             <div class="fade-in mt-4">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h2 class="text-white fw-bold mb-0">Gestion des Catégories</h2>
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+                    <div class="flex-grow-1" style="max-width: 500px;">
+                        <div class="input-group">
+                            <span class="input-group-text bg-dark border-secondary text-muted px-3"
+                                style="border-radius: 12px 0 0 12px;"><i class="fa-solid fa-search"></i></span>
+                            <input type="text" id="tableSearch"
+                                class="form-control bg-dark text-white border-secondary py-2"
+                                placeholder="Rechercher une catégorie..." style="border-radius: 0 12px 12px 0;">
+                        </div>
+                    </div>
                     <button class="btn btn-premium px-4" data-bs-toggle="modal" data-bs-target="#addCatModal">
                         <i class="fa-solid fa-plus-circle me-2"></i>Nouvelle Catégorie
                     </button>
@@ -93,7 +108,7 @@ $categories = $pdo->query("SELECT * FROM categories ORDER BY id_category DESC")-
                                         </tr>
                                     <?php else: ?>
                                         <?php foreach ($categories as $c): ?>
-                                            <tr>
+                                            <tr class="category-row">
                                                 <td class="px-4">
                                                     <div class="d-flex align-items-center">
                                                         <div class="icon-box bg-primary bg-opacity-10 text-primary me-3 text-center"
@@ -109,7 +124,7 @@ $categories = $pdo->query("SELECT * FROM categories ORDER BY id_category DESC")-
                                                 </td>
                                                 <td class="text-center">
                                                     <span class="badge bg-secondary bg-opacity-10 text-muted fw-normal">
-                                                        <?= $pdo->query("SELECT COUNT(*) FROM products WHERE id_category = " . $c['id_category'])->fetchColumn() ?>
+                                                        <?= $pdo->query("SELECT COUNT(*) FROM produits WHERE categorie = (SELECT name FROM categories WHERE id_category = " . $c['id_category'] . ")")->fetchColumn() ?>
                                                         items
                                                     </span>
                                                 </td>
@@ -169,6 +184,14 @@ $categories = $pdo->query("SELECT * FROM categories ORDER BY id_category DESC")-
                 window.location.href = 'categories.php?delete=' + id;
             }
         }
+
+        document.getElementById('tableSearch').addEventListener('input', function () {
+            const term = this.value.toLowerCase().trim();
+            document.querySelectorAll('.category-row').forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = text.includes(term) ? '' : 'none';
+            });
+        });
     </script>
 </body>
 

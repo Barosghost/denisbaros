@@ -1,69 +1,120 @@
 <?php
-session_start();
-
-// Access Control
-if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
-    header("Location: ../index.php");
-    exit();
-}
-
-require_once '../../backend/config/db.php';
+define('PAGE_ACCESS', 'dashboard');
+require_once '../../backend/includes/auth_required.php';
 $pageTitle = "Tableau de Bord";
 
+// Initialize stats to handle case where queries fail or role logic branches
+$my_active_repairs = 0;
+$pending_diagnostics = 0;
+$completed_today = 0;
+$recent_logs = [];
+$today_sales = 0;
+$low_stock = 0;
+$recent_sales = [];
+$products_count = 0;
+$clients_count = 0;
+$revenue_dates = [];
+$revenue_totals = [];
+$top_product_names = [];
+$top_product_values = [];
+$total_stock_value = 0;
+
 try {
-    // 1. Today's Sales
-    $stmt = $pdo->query("SELECT SUM(total_amount) FROM sales WHERE DATE(sale_date) = CURDATE()");
-    $today_sales = $stmt->fetchColumn() ?: 0;
+    if (strtolower($_SESSION['role']) === 'technicien') {
+        // --- TECHNICIAN STATS ---
+        $user_id = $_SESSION['user_id'];
 
-    // 2. Total Products
-    $products_count = $pdo->query("SELECT COUNT(*) FROM products")->fetchColumn();
+        // Find links and get tech ID
+        $tech_stmt = $pdo->prepare("SELECT id_technician FROM technicians WHERE id_user = ?");
+        $tech_stmt->execute([$user_id]);
+        $tech_id = $tech_stmt->fetchColumn() ?: 0;
 
-    // 3. Low Stock (< 5)
-    $low_stock = $pdo->query("SELECT COUNT(*) FROM stock WHERE quantity < 5")->fetchColumn();
+        // 1. My Active Repairs
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM sav_dossiers WHERE id_technicien = ? AND statut_sav IN ('en_diagnostic', 'en_reparation')");
+        $stmt->execute([$tech_id]);
+        $my_active_repairs = $stmt->fetchColumn();
 
-    // 4. Total Clients
-    $clients_count = $pdo->query("SELECT COUNT(*) FROM clients")->fetchColumn();
+        // 2. Pending Diagnostics
+        $stmt = $pdo->query("SELECT COUNT(*) FROM sav_dossiers WHERE statut_sav = 'en_attente'");
+        $pending_diagnostics = $stmt->fetchColumn();
 
-    // 5. Recent Transactions (Limit 5)
-    $stmt = $pdo->query("SELECT s.*, u.username, c.fullname as client_name 
-                         FROM sales s 
-                         JOIN users u ON s.id_user = u.id_user 
-                         LEFT JOIN clients c ON s.id_client = c.id_client 
-                         ORDER BY sale_date DESC LIMIT 5");
-    $recent_sales = $stmt->fetchAll();
+        // 3. Completed Today
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) 
+            FROM service_logs 
+            WHERE id_technicien = ? 
+            AND (action LIKE '%Terminé%' OR action LIKE '%Prêt%' OR action LIKE '%Livré%')
+            AND DATE(date) = CURDATE()
+        ");
+        $stmt->execute([$tech_id]);
+        $completed_today = $stmt->fetchColumn();
 
-    // 6. Chart Data: Last 7 Days Revenue
-    $revenue_dates = [];
-    $revenue_totals = [];
-    for ($i = 6; $i >= 0; $i--) {
-        $date = date('Y-m-d', strtotime("-$i days"));
-        $revenue_dates[] = date('d/m', strtotime($date));
-        $stmt = $pdo->prepare("SELECT SUM(total_amount) FROM sales WHERE DATE(sale_date) = ?");
-        $stmt->execute([$date]);
-        $revenue_totals[] = $stmt->fetchColumn() ?: 0;
+        // 4. My Recent Services (sav_dossiers: appareil_modele, pas marque/modele)
+        $stmt = $pdo->prepare("
+            SELECT sl.date as created_at, sl.action, sl.details, sd.appareil_modele as request_desc
+            FROM service_logs sl 
+            JOIN sav_dossiers sd ON sl.id_sav = sd.id_sav
+            WHERE sl.id_technicien = ? 
+            ORDER BY sl.date DESC LIMIT 5
+        ");
+        $stmt->execute([$tech_id]);
+        $recent_logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    } else {
+        // --- ADMIN / VENDEUR STATS ---
+        // 1. Today's Sales - prix_revente_final instead of montant_total
+        $stmt = $pdo->query("SELECT SUM(prix_revente_final) FROM ventes WHERE DATE(date_vente) = CURDATE()");
+        $today_sales = $stmt->fetchColumn() ?: 0;
+
+        // 2. Total Products
+        $products_count = $pdo->query("SELECT COUNT(*) FROM produits")->fetchColumn();
+
+        // 3. Low Stock
+        $low_stock = $pdo->query("SELECT COUNT(*) FROM produits WHERE stock_actuel < seuil_alerte")->fetchColumn();
+
+        // 4. Total Clients
+        $clients_count = $pdo->query("SELECT COUNT(*) FROM clients")->fetchColumn();
+
+        // 4b. Valeur totale du stock
+        $total_stock_value = $pdo->query("SELECT COALESCE(SUM(prix_achat * stock_actuel), 0) FROM produits")->fetchColumn() ?: 0;
+
+        // 5. Recent Transactions
+        $stmt = $pdo->query("
+            SELECT v.id_vente as id_sale, v.prix_revente_final as total_amount, v.date_vente as sale_date,
+                   u.username, c.nom_client as client_name
+            FROM ventes v
+            JOIN utilisateurs u ON v.id_vendeur = u.id_user
+            LEFT JOIN clients c ON v.id_client = c.id_client
+            ORDER BY v.date_vente DESC LIMIT 5
+        ");
+        $recent_sales = $stmt->fetchAll();
+
+        // 6. Chart Data: Last 7 Days Revenue
+        $revenue_dates = [];
+        $revenue_totals = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $date = date('Y-m-d', strtotime("-$i days"));
+            $revenue_dates[] = date('d/m', strtotime($date));
+            $stmt = $pdo->prepare("SELECT SUM(prix_revente_final) FROM ventes WHERE DATE(date_vente) = ?");
+            $stmt->execute([$date]);
+            $revenue_totals[] = $stmt->fetchColumn() ?: 0;
+        }
+
+        // 7. Chart Data: Top 5 Products (Revenue)
+        $stmt = $pdo->query("
+            SELECT p.designation as name, SUM(vd.quantite * vd.prix_unitaire) as total_sold
+            FROM vente_details vd
+            JOIN produits p ON vd.id_produit = p.id_produit
+            GROUP BY vd.id_produit
+            ORDER BY total_sold DESC LIMIT 5
+        ");
+        $top_products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $top_product_names = array_column($top_products, 'name');
+        $top_product_values = array_column($top_products, 'total_sold');
     }
 
-    // 7. Chart Data: Top 5 Products (Quantity)
-    $stmt = $pdo->query("SELECT p.name, SUM(s.quantity * s.unit_price) as total_sold 
-                         FROM sale_details s 
-                         JOIN products p ON s.id_product = p.id_product 
-                         GROUP BY s.id_product 
-                         ORDER BY total_sold DESC LIMIT 5");
-    $top_products = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $top_product_names = array_column($top_products, 'name');
-    $top_product_values = array_column($top_products, 'total_sold');
-
 } catch (PDOException $e) {
-    // Handle error gracefully
-    $today_sales = 0;
-    $products_count = 0;
-    $low_stock = 0;
-    $clients_count = 0;
-    $recent_sales = [];
-    $revenue_dates = [];
-    $revenue_totals = [];
-    $top_product_names = [];
-    $top_product_values = [];
+    error_log("Dashboard Data Error: " . $e->getMessage());
 }
 ?>
 
@@ -74,22 +125,16 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard | DENIS FBI STORE</title>
-    <!-- Bootstrap 5 -->
     <link href="../assets/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
-    <!-- FontAwesome -->
     <link rel="stylesheet" href="../assets/vendor/fontawesome/css/all.min.css">
-    <!-- Custom CSS -->
     <link rel="stylesheet" href="../assets/css/style.css?v=1.4">
-    <!-- PWA Manifest -->
-    <link rel="manifest" href="../manifest.json">
+    <script src="../assets/vendor/sweetalert2/sweetalert2.all.min.js"></script>
     <style>
         .dashboard-stat-card {
             background: rgba(30, 41, 59, 0.4);
             border: 1px solid rgba(255, 255, 255, 0.05);
             border-radius: 24px;
-            /* More rounded */
             padding: 30px;
-            /* Larger padding */
             display: flex;
             align-items: center;
             gap: 25px;
@@ -100,7 +145,6 @@ try {
             overflow: hidden;
         }
 
-        /* Unique Gradients for each card type */
         .card-premium-1 {
             background: linear-gradient(145deg, rgba(16, 185, 129, 0.1) 0%, rgba(6, 78, 59, 0.2) 100%);
             border-top: 1px solid rgba(16, 185, 129, 0.3);
@@ -121,11 +165,6 @@ try {
             border-top: 1px solid rgba(139, 92, 246, 0.3);
         }
 
-        .dashboard-stat-card:hover {
-            transform: translateY(-5px) scale(1.02);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        }
-
         .stat-icon-large {
             width: 70px;
             height: 70px;
@@ -135,20 +174,7 @@ try {
             align-items: center;
             justify-content: center;
             font-size: 2rem;
-            /* Larger icon */
             box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.2);
-        }
-
-        /* Decorative Background Circle */
-        .decorative-circle {
-            position: absolute;
-            width: 150px;
-            height: 150px;
-            background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 70%);
-            border-radius: 50%;
-            top: -50px;
-            right: -50px;
-            filter: blur(20px);
         }
 
         .recent-card {
@@ -157,7 +183,6 @@ try {
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 24px;
             overflow: hidden;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         }
 
         .action-btn-premium {
@@ -169,387 +194,273 @@ try {
             align-items: center;
             gap: 12px;
             color: #94a3b8;
-            transition: all 0.3s ease;
             text-decoration: none;
+            transition: all 0.3s;
         }
 
         .action-btn-premium:hover {
             background: rgba(99, 102, 241, 0.1);
-            border-color: rgba(99, 102, 241, 0.4);
             color: white;
             transform: translateX(5px);
         }
-
-        .action-btn-premium i {
-            width: 36px;
-            height: 36px;
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.05);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.1rem;
-            transition: all 0.3s;
-        }
-
-        .action-btn-premium:hover i {
-            background: var(--primary-color);
-            color: white;
-        }
     </style>
+</head>
 
 <body>
-
     <div class="wrapper">
-        <!-- Sidebar -->
         <?php include '../../backend/includes/sidebar.php'; ?>
-
-        <!-- Page Content -->
         <div id="content">
-            <!-- Top Navbar -->
             <?php include '../../backend/includes/header.php'; ?>
 
-            <!-- Stats Overview -->
+            <?php if (isset($_GET['error']) && $_GET['error'] === 'forbidden'): ?>
+            <div class="alert alert-warning alert-dismissible fade show mx-3 mt-2" role="alert">
+                <i class="fa-solid fa-lock me-2"></i> Vous n'avez pas accès à cette page avec votre rôle.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Fermer"></button>
+            </div>
+            <?php endif; ?>
+
             <div class="row g-4 mt-2 fade-in">
-                <!-- Ventes du Jour -->
-                <div class="col-xl-6 col-md-6">
-                    <div class="dashboard-stat-card card-premium-1">
-                        <div class="stat-icon-large text-success">
-                            <i class="fa-solid fa-coins"></i>
-                        </div>
-                        <div class="flex-grow-1">
-                            <div class="text-white-50 small text-uppercase fw-bold mb-2">Ventes du Jour</div>
-                            <div class="text-white h2 fw-bold mb-1"><?= number_format($today_sales, 0, ',', ' ') ?>
-                                <small class="text-muted fs-6 fw-normal">FCFA</small>
-                            </div>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-success bg-opacity-20 text-success rounded-pill px-2">
-                                    <i class="fa-solid fa-arrow-trend-up me-1"></i>+12%
-                                </span>
-                                <span class="extra-small text-muted">vs hier</span>
+                <?php if (strtolower($_SESSION['role']) === 'technicien'): ?>
+                    <div class="col-xl-4 col-md-6">
+                        <div class="dashboard-stat-card card-premium-2">
+                            <div class="stat-icon-large text-primary"><i class="fa-solid fa-screwdriver-wrench"></i></div>
+                            <div class="flex-grow-1">
+                                <div class="text-white-50 small text-uppercase fw-bold mb-2">Mes Réparations</div>
+                                <div class="text-white h2 fw-bold mb-1"><?= $my_active_repairs ?></div>
+                                <div class="extra-small text-muted">Assignées à moi</div>
                             </div>
                         </div>
-                        <div class="decorative-circle opacity-10"></div>
                     </div>
-                </div>
-
-                <!-- Produits -->
-                <div class="col-xl-6 col-md-6">
-                    <div class="dashboard-stat-card card-premium-2">
-                        <div class="stat-icon-large text-primary">
-                            <i class="fa-solid fa-layer-group"></i>
-                        </div>
-                        <div class="flex-grow-1">
-                            <div class="text-white-50 small text-uppercase fw-bold mb-2">Catalogue Produits</div>
-                            <div class="text-white h2 fw-bold mb-1"><?= $products_count ?></div>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-primary bg-opacity-20 text-primary rounded-pill px-2">
-                                    Actifs
-                                </span>
-                                <span class="extra-small text-muted">Total référencé</span>
+                    <div class="col-xl-4 col-md-6">
+                        <div class="dashboard-stat-card card-premium-3">
+                            <div class="stat-icon-large text-warning"><i class="fa-solid fa-microscope"></i></div>
+                            <div class="flex-grow-1">
+                                <div class="text-white-50 small text-uppercase fw-bold mb-2">Diagnostics</div>
+                                <div class="text-white h2 fw-bold mb-1"><?= $pending_diagnostics ?></div>
+                                <div class="extra-small text-muted">En attente</div>
                             </div>
                         </div>
-                        <div class="decorative-circle opacity-10"></div>
                     </div>
-                </div>
-
-                <!-- Stock Faible -->
-                <div class="col-xl-6 col-md-6">
-                    <div class="dashboard-stat-card card-premium-3">
-                        <div class="stat-icon-large text-warning">
-                            <i class="fa-solid fa-triangle-exclamation"></i>
-                        </div>
-                        <div class="flex-grow-1">
-                            <div class="text-white-50 small text-uppercase fw-bold mb-2">Alerte Stock</div>
-                            <div class="text-white h2 fw-bold mb-1"><?= $low_stock ?> <small
-                                    class="text-muted fs-6 fw-normal">articles</small></div>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-warning bg-opacity-20 text-warning rounded-pill px-2">
-                                    Attention
-                                </span>
-                                <span class="extra-small text-muted">Quantité &lt; 5</span>
+                    <div class="col-xl-4 col-md-12">
+                        <div class="dashboard-stat-card card-premium-1">
+                            <div class="stat-icon-large text-success"><i class="fa-solid fa-circle-check"></i></div>
+                            <div class="flex-grow-1">
+                                <div class="text-white-50 small text-uppercase fw-bold mb-2">Succès Journée</div>
+                                <div class="text-white h2 fw-bold mb-1"><?= $completed_today ?></div>
+                                <div class="extra-small text-muted">Aujourd'hui</div>
                             </div>
                         </div>
-                        <div class="decorative-circle opacity-10"></div>
                     </div>
-                </div>
-
-                <!-- Clients -->
-                <div class="col-xl-6 col-md-6">
-                    <div class="dashboard-stat-card card-premium-4">
-                        <div class="stat-icon-large text-info">
-                            <i class="fa-solid fa-users"></i>
-                        </div>
-                        <div class="flex-grow-1">
-                            <div class="text-white-50 small text-uppercase fw-bold mb-2">Base Clients</div>
-                            <div class="text-white h2 fw-bold mb-1"><?= $clients_count ?></div>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-info bg-opacity-20 text-info rounded-pill px-2">
-                                    <i class="fa-solid fa-file-export me-1"></i>Exporter
-                                </span>
-                                <span class="extra-small text-muted">Fichier client</span>
+                <?php else: ?>
+                    <?php
+                    $pending_sav = 0;
+                    try {
+                        $pending_sav = $pdo->query("SELECT COUNT(*) FROM sav_dossiers WHERE statut_sav = 'en_attente'")->fetchColumn();
+                    } catch (PDOException $e) { }
+                    ?>
+                    <div class="col-xl-4 col-md-6">
+                        <div class="dashboard-stat-card card-premium-1">
+                            <div class="stat-icon-large text-success"><i class="fa-solid fa-coins"></i></div>
+                            <div class="flex-grow-1">
+                                <div class="text-white-50 small text-uppercase fw-bold mb-2">Ventes du Jour</div>
+                                <div class="text-white h2 fw-bold mb-1"><?= number_format($today_sales, 0, ',', ' ') ?>
+                                    <small class="text-muted fs-6">FCFA</small>
+                                </div>
                             </div>
                         </div>
-                        <div class="decorative-circle opacity-10"></div>
                     </div>
-                </div>
+                    <div class="col-xl-4 col-md-6">
+                        <div class="dashboard-stat-card card-premium-2">
+                            <div class="stat-icon-large text-primary"><i class="fa-solid fa-box-open"></i></div>
+                            <div class="flex-grow-1">
+                                <div class="text-white-50 small text-uppercase fw-bold mb-2">Produits</div>
+                                <div class="text-white h2 fw-bold mb-1"><?= $products_count ?></div>
+                                <div class="extra-small text-muted">Références</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-4 col-md-6">
+                        <div class="dashboard-stat-card card-premium-3">
+                            <div class="stat-icon-large text-warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                            <div class="flex-grow-1">
+                                <div class="text-white-50 small text-uppercase fw-bold mb-2">Stock Alerte</div>
+                                <div class="text-white h2 fw-bold mb-1"><?= $low_stock ?> <small class="text-muted fs-6">articles</small></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-4 col-md-6">
+                        <div class="dashboard-stat-card card-premium-4">
+                            <div class="stat-icon-large text-info"><i class="fa-solid fa-users"></i></div>
+                            <div class="flex-grow-1">
+                                <div class="text-white-50 small text-uppercase fw-bold mb-2">Clients</div>
+                                <div class="text-white h2 fw-bold mb-1"><?= $clients_count ?></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-4 col-md-6">
+                        <div class="dashboard-stat-card card-premium-2">
+                            <div class="stat-icon-large text-secondary"><i class="fa-solid fa-screwdriver-wrench"></i></div>
+                            <div class="flex-grow-1">
+                                <div class="text-white-50 small text-uppercase fw-bold mb-2">SAV en attente</div>
+                                <div class="text-white h2 fw-bold mb-1"><?= $pending_sav ?></div>
+                                <div class="extra-small text-muted">Dossiers</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-4 col-md-6">
+                        <div class="dashboard-stat-card card-premium-1">
+                            <div class="stat-icon-large text-success"><i class="fa-solid fa-wallet"></i></div>
+                            <div class="flex-grow-1">
+                                <div class="text-white-50 small text-uppercase fw-bold mb-2">Valeur stock</div>
+                                <div class="text-white h2 fw-bold mb-1"><?= number_format($total_stock_value, 0, ',', ' ') ?> <small class="text-muted fs-6">FCFA</small></div>
+                            </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
             </div>
 
-            <!-- Charts Section -->
+            <?php if (strtolower($_SESSION['role']) !== 'technicien' && (count($revenue_dates) > 0 || count($top_product_names) > 0)): ?>
             <div class="row g-4 mt-2">
                 <div class="col-lg-8">
-                    <div class="recent-card h-100 p-4">
-                        <h5 class="text-white fw-bold mb-4">Évolution des Ventes (7 jours)</h5>
-                        <canvas id="salesChart" style="max-height: 300px;"></canvas>
+                    <div class="recent-card p-4">
+                        <h5 class="text-white fw-bold mb-4">Revenus des 7 derniers jours</h5>
+                        <div style="height: 220px;"><canvas id="revenueChart"></canvas></div>
                     </div>
                 </div>
                 <div class="col-lg-4">
-                    <div class="recent-card h-100 p-4">
-                        <h5 class="text-white fw-bold mb-4">Top Produits (Revenus)</h5>
-                        <div style="position: relative; height: 250px; display: flex; justify-content: center;">
-                            <canvas id="productsChart"></canvas>
-                        </div>
+                    <div class="recent-card p-4">
+                        <h5 class="text-white fw-bold mb-4">Top 5 produits (CA)</h5>
+                        <div style="height: 220px;"><canvas id="topProductsChart"></canvas></div>
                     </div>
                 </div>
             </div>
+            <?php endif; ?>
 
-            <!-- Recent Transactions & Quick Actions -->
             <div class="row g-4 mt-2">
                 <div class="col-lg-8">
-                    <div class="recent-card h-100">
-                        <div class="p-4 border-bottom border-white border-opacity-5">
-                            <div class="d-flex align-items-center justify-content-between">
-                                <h5 class="text-white fw-bold mb-0">Dernières Transactions</h5>
-                                <a href="reports.php" class="extra-small text-primary text-decoration-none fw-bold">VOIR
-                                    TOUT <i class="fa-solid fa-chevron-right ms-1"></i></a>
-                            </div>
-                        </div>
-                        <div class="card-body p-0">
-                            <?php if (empty($recent_sales)): ?>
-                                <div class="text-muted text-center py-5 opacity-50">
-                                    <i class="fa-solid fa-receipt fa-2x mb-3"></i>
-                                    <div>Aucune vente récente</div>
-                                </div>
-                            <?php else: ?>
-                                <div class="table-responsive">
-                                    <table class="table table-dark table-hover align-middle mb-0">
-                                        <thead>
-                                            <tr class="text-muted extra-small text-uppercase">
-                                                <th class="px-4">Date & Heure</th>
-                                                <th>Client / Vendeur</th>
-                                                <th class="text-end">Montant</th>
-                                                <th class="text-end px-4">Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
+                    <div class="recent-card p-4">
+                        <h5 class="text-white fw-bold mb-4">
+                            <?= strtolower($_SESSION['role']) === 'technicien' ? 'Mes Activités Récentes' : 'Dernières Ventes' ?>
+                        </h5>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-hover align-middle mb-0">
+                                <thead>
+                                    <tr class="text-muted extra-small text-uppercase">
+                                        <th class="px-4">Date</th>
+                                        <th>Description</th>
+                                        <th class="text-end px-4">Info</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (strtolower($_SESSION['role']) === 'technicien'): ?>
+                                        <?php if (empty($recent_logs)): ?>
+                                            <tr><td colspan="3" class="px-4 py-4 text-center text-muted">Aucune activité récente</td></tr>
+                                        <?php else: ?>
+                                            <?php foreach ($recent_logs as $log): ?>
+                                                <tr>
+                                                    <td class="px-4 small"><?= date('d/m H:i', strtotime($log['created_at'] ?? $log['date'] ?? 'now')) ?></td>
+                                                    <td class="small fw-bold text-info"><?= htmlspecialchars($log['action'] ?? '') ?> – <?= htmlspecialchars($log['request_desc'] ?? '') ?></td>
+                                                    <td class="text-end px-4 extra-small text-muted"><?= htmlspecialchars($log['details'] ?? '') ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                        <?php if (empty($recent_sales)): ?>
+                                            <tr><td colspan="3" class="px-4 py-4 text-center text-muted">Aucune vente récente</td></tr>
+                                        <?php else: ?>
                                             <?php foreach ($recent_sales as $sale): ?>
                                                 <tr>
-                                                    <td class="px-4">
-                                                        <div class="text-white small fw-bold">
-                                                            <?= date('d M, Y', strtotime($sale['sale_date'])) ?>
-                                                        </div>
-                                                        <div class="extra-small text-muted">
-                                                            <?= date('H:i', strtotime($sale['sale_date'])) ?>
-                                                        </div>
+                                                    <td class="px-4 small"><?= date('d/m H:i', strtotime($sale['sale_date'])) ?></td>
+                                                    <td class="small fw-bold">
+                                                        <?= htmlspecialchars($sale['client_name'] ?: 'Passage') ?> <br>
+                                                        <span class="extra-small text-muted">par <?= htmlspecialchars($sale['username']) ?></span>
                                                     </td>
-                                                    <td>
-                                                        <div class="text-white small fw-bold">
-                                                            <?= htmlspecialchars($sale['client_name'] ?? 'Client de passage') ?>
-                                                        </div>
-                                                        <div class="extra-small text-muted"><i
-                                                                class="fa-solid fa-user-tie me-1"></i><?= htmlspecialchars($sale['username']) ?>
-                                                        </div>
-                                                    </td>
-                                                    <td class="text-end fw-bold text-success">
-                                                        <?= number_format($sale['total_amount'], 0, ',', ' ') ?> <span
-                                                            class="extra-small fw-normal">FCFA</span>
-                                                    </td>
-                                                    <td class="text-end px-4">
-                                                        <a href="invoice.php?id=<?= $sale['id_sale'] ?>"
-                                                            class="btn btn-sm btn-outline-light border-0" target="_blank">
-                                                            <i class="fa-solid fa-print"></i>
-                                                        </a>
+                                                    <td class="text-end px-4 fw-bold text-success">
+                                                        <?= number_format($sale['total_amount'], 0, ',', ' ') ?> FCFA
                                                     </td>
                                                 </tr>
                                             <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            <?php endif; ?>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
-
                 <div class="col-lg-4">
-                    <div class="recent-card">
-                        <div class="p-4 border-bottom border-white border-opacity-5">
-                            <h5 class="text-white fw-bold mb-0">Actions Rapides</h5>
-                        </div>
-                        <div class="p-4 d-flex flex-column gap-3">
-                            <a href="sales.php" class="action-btn-premium">
-                                <i class="fa-solid fa-cash-register"></i>
-                                <div>
-                                    <div class="text-white fw-bold small">Point de Vente</div>
-                                    <div class="extra-small opacity-50">Effectuer une nouvelle vente</div>
-                                </div>
-                            </a>
-                            <a href="products.php" class="action-btn-premium">
-                                <i class="fa-solid fa-cart-plus"></i>
-                                <div>
-                                    <div class="text-white fw-bold small">Produits</div>
-                                    <div class="extra-small opacity-50">Gérer le catalogue</div>
-                                </div>
-                            </a>
-                            <a href="stock.php" class="action-btn-premium">
-                                <i class="fa-solid fa-boxes-stacked"></i>
-                                <div>
-                                    <div class="text-white fw-bold small">Inventaire</div>
-                                    <div class="extra-small opacity-50">Ajustement du stock</div>
-                                </div>
-                            </a>
-                            <a href="reports.php" class="action-btn-premium border-0 mt-2 bg-primary bg-opacity-10"
-                                style="color: white; border-radius: 20px;">
-                                <i class="fa-solid fa-chart-line bg-primary"></i>
-                                <div>
-                                    <div class="fw-bold small">Rapports & Ventes</div>
-                                    <div class="extra-small opacity-75">Statistiques détaillées</div>
-                                </div>
-                            </a>
+                    <div class="recent-card p-4">
+                        <h5 class="text-white fw-bold mb-4">Actions Rapides</h5>
+                        <div class="d-flex flex-column gap-3">
+                            <a href="sales.php" class="action-btn-premium"><i class="fa-solid fa-cash-register"></i>
+                                Point de Vente</a>
+                            <a href="repairs.php" class="action-btn-premium"><i
+                                    class="fa-solid fa-screwdriver-wrench"></i> SAV & Réparations</a>
+                            <a href="stock.php" class="action-btn-premium"><i class="fa-solid fa-boxes-stacked"></i>
+                                Gestion Stock</a>
+                            <a href="daily_reports.php" class="action-btn-premium"><i
+                                    class="fa-solid fa-clipboard-list"></i> Rapports Journaliers</a>
                         </div>
                     </div>
                 </div>
             </div>
-
         </div>
     </div>
 
     <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
     <script src="../assets/vendor/chart.js/chart.umd.js"></script>
     <script src="../assets/js/app.js"></script>
+    <?php if (strtolower($_SESSION['role']) !== 'technicien' && (count($revenue_dates) > 0 || count($top_product_names) > 0)): ?>
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            // Chart Defaults
+        document.addEventListener('DOMContentLoaded', function() {
             Chart.defaults.color = '#94a3b8';
-            Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.05)';
-            Chart.defaults.font.family = "'Inter', sans-serif";
-
-            // Sales Chart
-            const ctxSales = document.getElementById('salesChart');
-            if (ctxSales) {
-                new Chart(ctxSales, {
-                    type: 'line',
+            Chart.defaults.borderColor = 'rgba(255,255,255,0.08)';
+            var revenueCtx = document.getElementById('revenueChart');
+            if (revenueCtx) {
+                new Chart(revenueCtx.getContext('2d'), {
+                    type: 'bar',
                     data: {
                         labels: <?= json_encode($revenue_dates) ?>,
                         datasets: [{
-                            label: 'Chiffre d\'affaires (FCFA)',
+                            label: 'Revenus (FCFA)',
                             data: <?= json_encode($revenue_totals) ?>,
-                            borderColor: '#3b82f6',
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                            borderWidth: 3,
-                            pointBackgroundColor: '#3b82f6',
-                            pointBorderColor: '#1e293b',
-                            pointBorderWidth: 2,
-                            pointRadius: 4,
-                            pointHoverRadius: 6,
-                            fill: true,
-                            tension: 0.4
+                            backgroundColor: 'rgba(16, 185, 129, 0.4)',
+                            borderColor: 'rgba(16, 185, 129, 0.8)',
+                            borderWidth: 1
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                display: false
-                            },
-                            tooltip: {
-                                backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                                titleColor: '#f8fafc',
-                                bodyColor: '#cbd5e1',
-                                padding: 12,
-                                cornerRadius: 8,
-                                displayColors: false
-                            }
-                        },
+                        plugins: { legend: { display: false } },
                         scales: {
-                            y: {
-                                beginAtZero: true,
-                                grid: {
-                                    color: 'rgba(255, 255, 255, 0.05)'
-                                },
-                                ticks: {
-                                    callback: function (value) {
-                                        return value >= 1000 ? (value / 1000) + 'k' : value;
-                                    }
-                                }
-                            },
-                            x: {
-                                grid: {
-                                    display: false
-                                }
-                            }
+                            y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } },
+                            x: { grid: { display: false } }
                         }
                     }
                 });
             }
-
-            // Top Products Chart
-            const ctxProducts = document.getElementById('productsChart');
-            if (ctxProducts) {
-                new Chart(ctxProducts, {
+            var topCtx = document.getElementById('topProductsChart');
+            if (topCtx) {
+                new Chart(topCtx.getContext('2d'), {
                     type: 'doughnut',
                     data: {
-                        labels: <?= json_encode($top_product_names) ?>,
+                        labels: <?= json_encode(array_map(function($n) { return mb_substr($n, 0, 18) . (mb_strlen($n) > 18 ? '…' : ''); }, $top_product_names)) ?>,
                         datasets: [{
                             data: <?= json_encode($top_product_values) ?>,
-                            backgroundColor: [
-                                '#3b82f6', // Premium Blue
-                                '#10b981', // Success Green
-                                '#f59e0b', // Warning Orange
-                                '#8b5cf6', // Purple
-                                '#ec4899' // Pink
-                            ],
-                            borderWidth: 0,
-                            hoverOffset: 4
+                            backgroundColor: ['rgba(59, 130, 246, 0.7)', 'rgba(16, 185, 129, 0.7)', 'rgba(245, 158, 11, 0.7)', 'rgba(139, 92, 246, 0.7)', 'rgba(236, 72, 153, 0.7)'],
+                            borderWidth: 0
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: {
-                                    padding: 20,
-                                    usePointStyle: true,
-                                    pointStyle: 'circle'
-                                }
-                            }
-                        },
-                        cutout: '70%'
+                        plugins: { legend: { position: 'bottom' } }
                     }
                 });
             }
         });
     </script>
-    <script src="../assets/js/app.js"></script>
-    <script>
-        // FORCE PWA UPDATE (Self-Healing)
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function (registrations) {
-                for (let registration of registrations) {
-                    console.log('Unregistering SW to force update:', registration);
-                    registration.unregister();
-                }
-                const wasReloaded = sessionStorage.getItem('pwa_force_reload');
-                if (!wasReloaded) {
-                    sessionStorage.setItem('pwa_force_reload', 'true');
-                    console.log('Reloading page to apply updates...');
-                    window.location.reload(true);
-                }
-            });
-        }
-    </script>
+    <?php endif; ?>
 </body>
 
 </html>

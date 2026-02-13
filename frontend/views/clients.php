@@ -1,11 +1,6 @@
 <?php
-session_start();
-
-if (!isset($_SESSION['logged_in'])) {
-    header("Location: ../index.php");
-    exit();
-}
-
+define('PAGE_ACCESS', 'clients');
+require_once '../../backend/includes/auth_required.php';
 require_once '../../backend/config/db.php';
 require_once '../../backend/config/functions.php';
 require_once '../../backend/config/loyalty_config.php';
@@ -15,11 +10,11 @@ $pageTitle = "Gestion des Clients";
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'add') {
     $fullname = trim($_POST['fullname']);
     $phone = trim($_POST['phone']);
-    $email = trim($_POST['email']);
+    $address = trim($_POST['address']);
 
     try {
-        $stmt = $pdo->prepare("INSERT INTO clients (fullname, phone, email) VALUES (?, ?, ?)");
-        $stmt->execute([$fullname, $phone, $email]);
+        $stmt = $pdo->prepare("INSERT INTO clients (nom_client, telephone, adresse) VALUES (?, ?, ?)");
+        $stmt->execute([$fullname, $phone, $address]);
         logActivity($pdo, $_SESSION['user_id'] ?? 1, "Ajout client", "Client: $fullname");
         $success = "Client enregistré avec succès.";
     } catch (PDOException $e) {
@@ -27,16 +22,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     }
 }
 
+if (isset($_GET['success'])) {
+    $success = $_GET['success'];
+}
+
 // Handle Update Client
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'update') {
     $id_client = $_POST['id_client'];
     $fullname = trim($_POST['fullname']);
     $phone = trim($_POST['phone']);
-    $email = trim($_POST['email']);
+    $address = trim($_POST['address']);
 
     try {
-        $stmt = $pdo->prepare("UPDATE clients SET fullname = ?, phone = ?, email = ? WHERE id_client = ?");
-        $stmt->execute([$fullname, $phone, $email, $id_client]);
+        $stmt = $pdo->prepare("UPDATE clients SET nom_client = ?, telephone = ?, adresse = ? WHERE id_client = ?");
+        $stmt->execute([$fullname, $phone, $address, $id_client]);
         logActivity($pdo, $_SESSION['user_id'] ?? 1, "Modification client", "ID: $id_client, Client: $fullname");
         $success = "Client mis à jour.";
     } catch (PDOException $e) {
@@ -46,16 +45,44 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
 
 // Summary Stats
 $total_clients = $pdo->query("SELECT COUNT(*) FROM clients")->fetchColumn();
-$active_clients_30d = $pdo->query("SELECT COUNT(DISTINCT id_client) FROM sales WHERE sale_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)")->fetchColumn();
-$vip_clients = $pdo->query("SELECT COUNT(*) FROM clients WHERE loyalty_level IN ('Or', 'Platine')")->fetchColumn();
+$active_clients_30d = $pdo->query("SELECT COUNT(DISTINCT id_client) FROM ventes WHERE date_vente >= DATE_SUB(NOW(), INTERVAL 30 DAY)")->fetchColumn();
+$vip_clients = 0;
+try {
+    $vip_clients = $pdo->query("SELECT COUNT(*) FROM clients WHERE loyalty_level IN ('Or', 'Platine')")->fetchColumn();
+} catch (PDOException $e) { /* colonne optionnelle */
+}
+
+// Handle Delete Client
+if (isset($_GET['delete'])) {
+    if (!in_array($_SESSION['role'], ['admin', 'super_admin'])) {
+        $error = "Accès refusé. Droits insuffisants.";
+    } else {
+        $id = $_GET['delete'];
+        try {
+            // Check for sales first
+            $stmt_check = $pdo->prepare("SELECT COUNT(*) FROM ventes WHERE id_client = ?");
+            $stmt_check->execute([$id]);
+            if ($stmt_check->fetchColumn() > 0) {
+                $error = "Impossible de supprimer ce client car il possède un historique d'achats. Pour préserver l'intégrité des données, vous pouvez seulement modifier ses informations.";
+            } else {
+                $pdo->prepare("DELETE FROM clients WHERE id_client = ?")->execute([$id]);
+                logActivity($pdo, $_SESSION['user_id'] ?? 1, "Suppression client", "ID: $id");
+                header("Location: clients.php?success=" . urlencode("Le profil client a été définitivement supprimé."));
+                exit();
+            }
+        } catch (PDOException $e) {
+            $error = "Erreur database : " . $e->getMessage();
+        }
+    }
+}
 
 // Fetch Clients with Total Sales
-$clients = $pdo->query("SELECT c.*, (SELECT COUNT(*) FROM sales s WHERE s.id_client = c.id_client) as total_sales, (SELECT SUM(total_amount) FROM sales s WHERE s.id_client = c.id_client) as total_spent FROM clients c ORDER BY c.created_at DESC")->fetchAll();
+$clients = $pdo->query("SELECT c.*, (SELECT COUNT(*) FROM ventes s WHERE s.id_client = c.id_client) as total_sales, (SELECT SUM(prix_revente_final) FROM ventes s WHERE s.id_client = c.id_client) as total_spent FROM clients c ORDER BY c.date_inscription DESC")->fetchAll();
 
 // Handle AJAX for history
 if (isset($_GET['get_history'])) {
     $id = $_GET['get_history'];
-    $stmt = $pdo->prepare("SELECT s.*, u.username FROM sales s JOIN users u ON s.id_user = u.id_user WHERE s.id_client = ? ORDER BY s.sale_date DESC");
+    $stmt = $pdo->prepare("SELECT s.*, u.username FROM ventes s JOIN utilisateurs u ON s.id_vendeur = u.id_user WHERE s.id_client = ? ORDER BY s.date_vente DESC");
     $stmt->execute([$id]);
     $history = $stmt->fetchAll();
     header('Content-Type: application/json');
@@ -74,6 +101,7 @@ if (isset($_GET['get_history'])) {
     <link href="../assets/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="../assets/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="../assets/css/style.css?v=1.5">
+    <script src="../assets/vendor/sweetalert2/sweetalert2.all.min.js"></script>
     <style>
         .client-avatar {
             width: 48px;
@@ -191,7 +219,7 @@ if (isset($_GET['get_history'])) {
                                 <div class="text-muted extra-small fw-bold text-uppercase">Actifs (30j)</div>
                                 <div class="h3 text-white fw-bold mb-0"><?= $active_clients_30d ?>
                                     <span
-                                        class="fs-6 fw-normal opacity-50 ms-1">(<?= round(($active_clients_30d / $total_clients) * 100) ?>%)</span>
+                                        class="fs-6 fw-normal opacity-50 ms-1">(<?= ($total_clients > 0) ? round(($active_clients_30d / $total_clients) * 100) : 0 ?>%)</span>
                                 </div>
                             </div>
                         </div>
@@ -245,7 +273,7 @@ if (isset($_GET['get_history'])) {
                                     <?php foreach ($clients as $c):
                                         $level = !empty($c['loyalty_level']) ? $c['loyalty_level'] : 'Bronze';
                                         $levelInfo = getLevelInfo($level);
-                                        $initials = strtoupper(substr($c['fullname'], 0, 1) . (strpos($c['fullname'], ' ') !== false ? substr($c['fullname'], strpos($c['fullname'], ' ') + 1, 1) : ''));
+                                        $initials = strtoupper(substr($c['nom_client'], 0, 1) . (strpos($c['nom_client'], ' ') !== false ? substr($c['nom_client'], strpos($c['nom_client'], ' ') + 1, 1) : ''));
                                         ?>
                                         <tr class="client-row">
                                             <td class="px-4">
@@ -253,10 +281,10 @@ if (isset($_GET['get_history'])) {
                                                     <div class="client-avatar me-3"><?= $initials ?></div>
                                                     <div>
                                                         <div class="text-white fw-bold">
-                                                            <?= htmlspecialchars($c['fullname']) ?>
+                                                            <?= htmlspecialchars($c['nom_client']) ?>
                                                         </div>
                                                         <div class="text-muted extra-small">Inscrit le
-                                                            <?= date('d/m/Y', strtotime($c['created_at'])) ?>
+                                                            <?= date('d/m/Y', strtotime($c['date_inscription'])) ?>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -264,11 +292,11 @@ if (isset($_GET['get_history'])) {
                                             <td>
                                                 <div class="small fw-medium text-white mb-1">
                                                     <i
-                                                        class="fa-solid fa-phone me-2 text-muted extra-small"></i><?= htmlspecialchars($c['phone'] ?? '-') ?>
+                                                        class="fa-solid fa-phone me-2 text-muted extra-small"></i><?= htmlspecialchars($c['telephone'] ?? '-') ?>
                                                 </div>
                                                 <div class="extra-small text-muted">
                                                     <i
-                                                        class="fa-solid fa-envelope me-2 extra-small"></i><?= htmlspecialchars($c['email'] ?? 'Aucun email') ?>
+                                                        class="fa-solid fa-location-dot me-2 extra-small"></i><?= htmlspecialchars($c['adresse'] ?? 'Aucune adresse') ?>
                                                 </div>
                                             </td>
                                             <td class="text-center">
@@ -294,7 +322,7 @@ if (isset($_GET['get_history'])) {
                                             <td class="text-end px-4">
                                                 <div class="btn-group">
                                                     <button class="btn btn-sm btn-outline-info border-0" title="Historique"
-                                                        onclick="viewHistory(<?= $c['id_client'] ?>, '<?= addslashes($c['fullname']) ?>')">
+                                                        onclick="viewHistory(<?= $c['id_client'] ?>, '<?= addslashes($c['nom_client']) ?>')">
                                                         <i class="fa-solid fa-history"></i>
                                                     </button>
                                                     <button class="btn btn-sm btn-outline-primary border-0 ms-2"
@@ -302,6 +330,12 @@ if (isset($_GET['get_history'])) {
                                                         onclick='openEdit(<?= htmlspecialchars(json_encode($c), ENT_QUOTES, "UTF-8") ?>)'>
                                                         <i class="fa-solid fa-pen"></i>
                                                     </button>
+                                                    <?php if (in_array($_SESSION['role'], ['admin', 'super_admin'])): ?>
+                                                        <button class="btn btn-sm btn-outline-danger border-0 ms-2"
+                                                            title="Supprimer" onclick="confirmDelete(<?= $c['id_client'] ?>)">
+                                                            <i class="fa-solid fa-trash"></i>
+                                                        </button>
+                                                    <?php endif; ?>
                                                 </div>
                                             </td>
                                         </tr>
@@ -337,9 +371,9 @@ if (isset($_GET['get_history'])) {
                                 placeholder="Ex: +237 ...">
                         </div>
                         <div class="mb-0">
-                            <label class="form-label text-muted small fw-bold">EMAIL</label>
-                            <input type="email" name="email" class="form-control bg-dark text-white border-secondary"
-                                placeholder="Ex: client@domain.com">
+                            <label class="form-label text-muted small fw-bold">ADRESSE</label>
+                            <input type="text" name="address" class="form-control bg-dark text-white border-secondary"
+                                placeholder="Ex: Douala, Akwa">
                         </div>
                     </div>
                     <div class="modal-footer border-secondary border-opacity-10 p-4">
@@ -372,8 +406,8 @@ if (isset($_GET['get_history'])) {
                                 class="form-control bg-dark text-white border-secondary">
                         </div>
                         <div class="mb-0">
-                            <label class="form-label text-muted small fw-bold">EMAIL</label>
-                            <input type="email" name="email" id="ed_email"
+                            <label class="form-label text-muted small fw-bold">ADRESSE</label>
+                            <input type="text" name="address" id="ed_address"
                                 class="form-control bg-dark text-white border-secondary">
                         </div>
                     </div>
@@ -431,9 +465,9 @@ if (isset($_GET['get_history'])) {
 
         function openEdit(c) {
             document.getElementById('ed_id').value = c.id_client;
-            document.getElementById('ed_name').value = c.fullname;
-            document.getElementById('ed_phone').value = c.phone || '';
-            document.getElementById('ed_email').value = c.email || '';
+            document.getElementById('ed_name').value = c.nom_client;
+            document.getElementById('ed_phone').value = c.telephone || '';
+            document.getElementById('ed_address').value = c.adresse || '';
             new bootstrap.Modal(document.getElementById('editClientModal')).show();
         }
 
@@ -447,17 +481,36 @@ if (isset($_GET['get_history'])) {
                     let html = '';
                     if (data.length === 0) html = '<tr><td colspan="4" class="text-center py-5 text-muted">Aucun achat enregistré.</td></tr>';
                     else data.forEach(s => {
-                        const date = new Date(s.sale_date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                        const date = new Date(s.date_vente).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
                         html += `<tr>
                             <td class="px-4 text-white">${date}</td>
                             <td class="text-muted">${s.username}</td>
-                            <td class="text-end fw-bold text-success">${new Intl.NumberFormat('fr-FR').format(s.total_amount)} FCFA</td>
-                            <td class="text-end px-4"><a href="invoice.php?id=${s.id_sale}" target="_blank" class="btn btn-sm btn-outline-light"><i class="fa-solid fa-print"></i></a></td>
+                            <td class="text-end fw-bold text-success">${new Intl.NumberFormat('fr-FR').format(s.prix_revente_final)} FCFA</td>
+                            <td class="text-end px-4"><a href="invoice.php?id=${s.id_vente}" target="_blank" class="btn btn-sm btn-outline-light"><i class="fa-solid fa-print"></i></a></td>
                         </tr>`;
                     });
                     document.getElementById('histBody').innerHTML = html;
                     new bootstrap.Modal(document.getElementById('historyModal')).show();
                 });
+        }
+
+        function confirmDelete(id) {
+            Swal.fire({
+                title: 'Êtes-vous sûr ?',
+                text: "Cette action supprimera définitivement le profil de ce client.",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ef4444',
+                cancelButtonColor: '#64748b',
+                confirmButtonText: 'Oui, supprimer',
+                cancelButtonText: 'Annuler',
+                background: '#0f172a',
+                color: '#ffffff'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    window.location.href = 'clients.php?delete=' + id;
+                }
+            });
         }
     </script>
 </body>

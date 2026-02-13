@@ -1,13 +1,14 @@
 <?php
-session_start();
+require_once '../includes/session_init.php';
 require_once '../config/db.php';
 require_once '../config/functions.php';
+require_once '../includes/ErrorHandler.php';
+require_once '../includes/Logger.php';
 
 header('Content-Type: application/json');
 
-if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'admin') {
-    echo json_encode(['success' => false, 'message' => 'Non autorisé']);
-    exit();
+if (!isset($_SESSION['logged_in']) || !in_array($_SESSION['role'] ?? '', ['admin', 'super_admin'])) {
+    ErrorHandler::handleApiError('Non autorisé', 403);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

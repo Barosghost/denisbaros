@@ -50,13 +50,18 @@ Ce document contient toutes les informations nécessaires pour la configuration,
 
 ## 📁 4. STRUCTURE DU PROJET
 
-- **`/actions/`** : Logique métier (Caisse, Backups, Processus de vente).
-- **`/assets/`** : Fichiers CSS et JS (Le design "Cyberpunk" et la logique POS).
-- **`/auth/`** : Gestion de la connexion et déconnexion.
-- **`/backups/`** : Stockage des archives automatiques mensuelles.
-- **`/config/`** : Paramètres vitaux de l'application.
-- **`/includes/`** : Éléments répétitifs (Menu latéral, En-tête).
-- **`/views/`** : Toutes les pages de l'interface utilisateur.
+- **`/backend/`** : Cœur de l'application.
+  - **`/actions/`** : Logique métier (Caisse, Backups, Processus de vente).
+  - **`/auth/`** : Gestion de la connexion et déconnexion.
+  - **`/config/`** : Paramètres vitaux (BDD, Fidélité, Fonctions).
+  - **`/includes/`** : Éléments d'interface (Menu, Header).
+  - **`/backups/`** : Archives automatiques mensuelles.
+- **`/frontend/`** : Interface utilisateur.
+  - **`/views/`** : Toutes les pages (Dashboard, Produits, Ventes, Rapports).
+  - **`/assets/`** : Design CSS, Logique JS, Images.
+  - **`/uploads/`** : Dossier public des images produits.
+- **`/database/`** : Scripts SQL d'installation.
+- **`index.php`** : Point d'entrée racine (Redirection automatique).
 
 ---
 

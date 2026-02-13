@@ -1,8 +1,0 @@
-id_reward
-name
-description
-points_required
-discount_amount
-min_level
-is_active
-created_at

@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once '../backend/includes/session_init.php';
 if (isset($_SESSION['logged_in'])) {
     header("Location: views/dashboard.php");
     exit();
@@ -57,7 +57,21 @@ generateCsrfToken();
                         <div class="alert alert-danger border-0 bg-danger bg-opacity-10 text-danger fade show mb-4 d-flex align-items-center"
                             role="alert">
                             <i class="fa-solid fa-circle-exclamation me-2"></i>
-                            <div><strong>Erreur :</strong> Identifiants incorrects.</div>
+                            <div>
+                                <strong>Erreur :</strong>
+                                <?php
+                                if ($_GET['error'] == 'blocked')
+                                    echo "Votre compte a été désactivé. Veuillez contacter l'administrateur.";
+                                elseif ($_GET['error'] == 'maintenance')
+                                    echo "Le site est actuellement en maintenance. Seuls les Super Admins peuvent se connecter.";
+                                elseif ($_GET['error'] == 'csrf')
+                                    echo "Session expirée. Veuillez réessayer.";
+                                elseif ($_GET['error'] == 'empty')
+                                    echo "Veuillez remplir tous les champs.";
+                                else
+                                    echo "Identifiants incorrects.";
+                                ?>
+                            </div>
                         </div>
                     <?php endif; ?>
 
