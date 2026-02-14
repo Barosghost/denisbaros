@@ -256,15 +256,3 @@ INSERT INTO roles (nom_role) VALUES
 ('Vendeur'),
 ('Technicien');
 
--- ------------------------------
--- 9. UTILISATEURS DE TEST
--- ------------------------------
--- Mot de passe commun pour les comptes de test : password
-INSERT INTO utilisateurs (id_role, nom_complet, username, password_hash) VALUES
-(1, 'Super Admin', 'superadmin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'),
-(2, 'Admin Test', 'admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'),
-(4, 'Vendeur Test', 'vendeur', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'),
-(5, 'Technicien Test', 'tech', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi');
-
-INSERT INTO technicians (id_user, fullname, phone, email) 
-SELECT id_user, 'Technicien Test', '600000000', 'tech@fbi.com' FROM utilisateurs WHERE username='tech';
