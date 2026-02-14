@@ -34,8 +34,8 @@ $reports = $stmt->fetchAll();
 <head>
     <meta charset="UTF-8">
     <title><?= $pageTitle ?> | DENIS FBI STORE</title>
-    <link href="../assets/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../assets/vendor/fontawesome/css/all.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/premium-ui.css">
     <style>
@@ -240,7 +240,7 @@ $reports = $stmt->fetchAll();
         </div>
     </div>
 
-    <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="../assets/js/app.js"></script>
     <script src="../assets/vendor/sweetalert2/sweetalert2.all.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>

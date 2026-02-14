@@ -114,11 +114,11 @@ $categories = $pdo->query("SELECT DISTINCT categorie FROM produits WHERE categor
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Produits | DENIS FBI STORE</title>
-    <link href="../assets/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../assets/vendor/fontawesome/css/all.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="../assets/css/style.css?v=1.4">
     <link rel="manifest" href="../manifest.json">
-    <script src="../assets/vendor/sweetalert2/sweetalert2.all.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         /* Reusing consistent styles */
         .product-stat-card {
@@ -582,7 +582,7 @@ $categories = $pdo->query("SELECT DISTINCT categorie FROM produits WHERE categor
         </div>
     </div>
 
-    <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         function viewProductDetails(prod) {
             document.getElementById('detId').innerText = '#' + prod.id_produit.toString().padStart(4, '0');
